@@ -1,4 +1,5 @@
 import { Storage } from "@plasmohq/storage"
+import type { Network } from "~types/types"
 
 
 const storage = new Storage()
@@ -17,7 +18,7 @@ function decode(buf: ArrayBuffer) {
 }
 
 // Derive a cryptographic key from a password
-async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveKey(password: string, salt: Uint8Array, network: Network): Promise<CryptoKey> {
     const baseKey = await crypto.subtle.importKey(
         "raw",
         encode(password),
@@ -41,10 +42,10 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
 }
 
 
-export async function encryptMnemonic(mnemonic: string, password: string) {
+export async function encryptMnemonic(mnemonic: string, password: string, network: Network) {
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const iv = crypto.getRandomValues(new Uint8Array(12))
-    const key = await deriveKey(password, salt)
+    const key = await deriveKey(password, salt, network)
 
     const cipherText = await crypto.subtle.encrypt(
         { name: "AES-GCM", iv },
@@ -58,18 +59,18 @@ export async function encryptMnemonic(mnemonic: string, password: string) {
         cipherText: Array.from(new Uint8Array(cipherText)),
     }
 
-    await storage.set("wallet", encryptedData)
+    await storage.set(`${network}-wallet`, encryptedData)
 }
 
-export async function decryptMnemonic(password: string): Promise<string> {
-    const result = await storage.get("wallet")
+export async function decryptMnemonic(password: string, network: Network): Promise<string> {
+    const result = await storage.get(`${network}-wallet`)
 
     if (!result) {
         throw new Error("No wallet found")
     }
 
     const { salt, iv, cipherText } = result as any
-    const key = await deriveKey(password, new Uint8Array(salt))
+    const key = await deriveKey(password, new Uint8Array(salt), network)
 
     const decrypted = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: new Uint8Array(iv) },
@@ -80,13 +81,13 @@ export async function decryptMnemonic(password: string): Promise<string> {
     return decode(decrypted)
 }
 
-export async function isWalletCreated(): Promise<boolean> {
-    const result = await storage.get("wallet")
+export async function isWalletCreated(network: Network): Promise<boolean> {
+    const result = await storage.get(`${network}-wallet`)
     return !!result
 }
 
-export async function clearWallet() {
-    await storage.remove("wallet")
+export async function clearWallet(network: Network) {
+    await storage.remove(`${network}-wallet`)
 }
 
 

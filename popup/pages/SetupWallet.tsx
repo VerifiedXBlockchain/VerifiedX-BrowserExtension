@@ -8,8 +8,8 @@ interface Props {
 }
 
 export default function SetupWallet({ network, onCreate }: Props) {
-    const [password, setPassword] = useState("younotry")
-    const [confirmPassword, setConfirmPassword] = useState("younotry")
+    const [password, setPassword] = useState("")
+    const [confirmPassword, setConfirmPassword] = useState("")
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
 
@@ -34,7 +34,7 @@ export default function SetupWallet({ network, onCreate }: Props) {
             const mnemonic = client.generateMnemonic(24)
 
             // Step 1: Encrypt and store the mnemonic securely
-            await encryptMnemonic(mnemonic, password)
+            await encryptMnemonic(mnemonic, password, network)
 
             // Step 2: (Optional) Immediately unlock in background memory
             await chrome.runtime.sendMessage({

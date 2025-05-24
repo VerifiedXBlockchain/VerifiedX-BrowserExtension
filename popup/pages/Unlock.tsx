@@ -10,7 +10,7 @@ interface UnlockProps {
 }
 
 export default function Unlock({ network, onUnlockSuccess }: UnlockProps) {
-    const [password, setPassword] = useState("younotry")
+    const [password, setPassword] = useState("")
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
 
@@ -20,7 +20,7 @@ export default function Unlock({ network, onUnlockSuccess }: UnlockProps) {
 
         try {
 
-            const mnemonic = await decryptMnemonic(password)
+            const mnemonic = await decryptMnemonic(password, network)
 
             await chrome.runtime.sendMessage({
                 type: "UNLOCK_WALLET",

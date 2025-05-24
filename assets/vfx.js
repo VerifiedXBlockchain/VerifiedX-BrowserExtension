@@ -43793,6 +43793,21 @@
             }
           };
 
+          // src/client/transaction-api.client.ts
+          var TransactionApiClient = class extends BaseApiClient {
+            constructor(network) {
+              super({ basePath: "/transaction", network });
+              this.listTransactionsForAddress = (address, page = 1, limit = 10) => __async(this, null, function* () {
+                try {
+                  return yield this.makeJsonRequest(`/address/${address}/`, "GET", { "page": page, "limit": limit });
+                } catch (e) {
+                  console.log(e);
+                  return null;
+                }
+              });
+            }
+          };
+
           // src/client/vfx-client.ts
           var VfxClient = class {
             constructor(network, dryRun = false) {
@@ -43855,10 +43870,14 @@
                 });
                 return yield txBuilder.process(this.dryRun);
               });
+              this.listTransactionsForAddress = (address, page = 1, limit = 10) => __async(this, null, function* () {
+                return this.transactionApiClient.listTransactionsForAddress(address, page, limit);
+              });
               this.network = network;
               this.dryRun = dryRun;
               this.keypairService = new keypair_service_default(this.network);
               this.addressApiClient = new AddressApiClient(this.network);
+              this.transactionApiClient = new TransactionApiClient(this.network);
             }
           };
 

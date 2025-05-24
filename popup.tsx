@@ -19,7 +19,7 @@ function IndexPopup() {
 
   useEffect(() => {
     const init = async () => {
-      const hasWallet = await isWalletCreated()
+      const hasWallet = await isWalletCreated(network)
 
       if (!hasWallet) {
         setScreen("SetupWallet")
