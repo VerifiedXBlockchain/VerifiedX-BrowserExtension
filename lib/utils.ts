@@ -1,4 +1,5 @@
-import type { Account, Network } from "~types/types";
+import type { Account } from "~types/types";
+import { Network } from "~types/types";
 
 
 export const mnemonicToAccount = (network: Network, mnemonic: string, index: number = 0): Account => {
@@ -17,8 +18,27 @@ export const mnemonicToAccount = (network: Network, mnemonic: string, index: num
     return account;
 }
 
-export function copyToClipboard(text: string) {
+export const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).catch((err) => {
         console.error("Failed to copy:", err)
     })
+}
+
+export const validateVfxAddress = (address: string, network: Network) => {
+    if (!address) return false;
+
+    if (address.length !== 34) {
+        return false;
+    }
+
+    if (address.startsWith("xRBX")) {
+        return true;
+    }
+
+    if (address.startsWith(network == Network.Testnet ? "x" : "R")) {
+        return true;
+    }
+
+    return false;
+
 }

@@ -1,14 +1,17 @@
 import { useState } from "react"
+import { validateVfxAddress } from "~lib/utils";
 
 import type { VfxAddress } from "~types/types"
+import { Network } from "~types/types";
 
 
 interface SendFormProps {
-    fromAddress: VfxAddress
+    fromAddress: VfxAddress;
+    network: Network;
     onSubmit: (toAddress: string, amount: number) => void;
 }
 
-export default function SendForm({ fromAddress, onSubmit }: SendFormProps) {
+export default function SendForm({ fromAddress, onSubmit, network }: SendFormProps) {
     const [toAddress, setToAddress] = useState('');
     const [amount, setAmount] = useState('');
 
@@ -23,6 +26,11 @@ export default function SendForm({ fromAddress, onSubmit }: SendFormProps) {
 
         if (!toAddress) {
             setToAddressError("To Address Required");
+            hasError = true;
+        }
+
+        if (!validateVfxAddress(toAddress, network)) {
+            setToAddressError("Invalid Address");
             hasError = true;
         }
 
