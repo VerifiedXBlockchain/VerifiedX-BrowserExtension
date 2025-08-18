@@ -4,7 +4,7 @@ import cube from 'data-base64:~assets/vfx-cube.png'
 import wordmark from 'data-base64:~assets/wordmark.png'
 import SetupWallet from "~popup/pages/SetupWallet"
 import BackupMnemonic from "~popup/pages/BackupMnemonic"
-import { isWalletCreated } from "~lib/secureStorage"
+import { isWalletCreated, getNetwork, setNetwork } from "~lib/secureStorage"
 import Home from "~popup/pages/Home"
 import Unlock from "~popup/pages/Unlock"
 import { Network, type Account } from "~types/types"
@@ -12,14 +12,17 @@ import "assets/vfx.js"
 import { mnemonicToAccount } from "~lib/utils"
 
 function IndexPopup() {
-  const [network, setNetwork] = useState<Network>(Network.Testnet)
+  const [network, setNetworkState] = useState<Network>(Network.Testnet)
   const [mnemonic, setMnemonic] = useState("")
   const [account, setAccount] = useState<Account | null>(null)
   const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home">("Booting")
 
   useEffect(() => {
     const init = async () => {
-      const hasWallet = await isWalletCreated(network)
+      const savedNetwork = await getNetwork()
+      setNetworkState(savedNetwork)
+
+      const hasWallet = await isWalletCreated(savedNetwork)
 
       if (!hasWallet) {
         setScreen("SetupWallet")
@@ -37,7 +40,7 @@ function IndexPopup() {
           return
         }
 
-        const account = mnemonicToAccount(network, mnemonic, 0);
+        const account = mnemonicToAccount(savedNetwork, mnemonic, 0);
 
         setAccount(account)
         setScreen("Home")
@@ -64,6 +67,38 @@ function IndexPopup() {
     }
   }, [])
 
+  const handleNetworkChange = async (newNetwork: Network) => {
+    await setNetwork(newNetwork)
+    setNetworkState(newNetwork)
+    
+    setAccount(null)
+    setScreen("Booting")
+    
+    setTimeout(async () => {
+      const hasWallet = await isWalletCreated(newNetwork)
+      
+      if (!hasWallet) {
+        setScreen("SetupWallet")
+        return
+      }
+
+      const { unlocked } = await chrome.runtime.sendMessage({ type: "IS_UNLOCKED" })
+      
+      if (unlocked) {
+        const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
+        
+        if (mnemonic) {
+          const account = mnemonicToAccount(newNetwork, mnemonic, 0);
+          setAccount(account)
+          setScreen("Home")
+        } else {
+          setScreen("Unlock")
+        }
+      } else {
+        setScreen("Unlock")
+      }
+    }, 100)
+  }
 
   if (screen == "Booting") {
     return <div className="bg-gray-950 w-96 min-h-56 text-white"></div>
@@ -119,6 +154,7 @@ function IndexPopup() {
         <Home
           network={network}
           account={account}
+          onNetworkChange={handleNetworkChange}
           onLock={async () => {
             await chrome.runtime.sendMessage({ type: "LOCK_WALLET" })
             setAccount(null)

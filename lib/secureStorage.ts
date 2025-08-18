@@ -1,5 +1,5 @@
 import { Storage } from "@plasmohq/storage"
-import type { Network } from "~types/types"
+import { Network } from "~types/types"
 
 
 const storage = new Storage()
@@ -127,4 +127,13 @@ export async function resetUnlockTimer() {
     await storage.set("unlockedUntil", unlockUntil)
 
     lastResetAt = now
+}
+
+export async function setNetwork(network: Network) {
+    await storage.set("selectedNetwork", network)
+}
+
+export async function getNetwork(): Promise<Network> {
+    const network = await storage.get<Network>("selectedNetwork")
+    return network || Network.Testnet
 }

@@ -11,16 +11,21 @@ import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
+import NetworkToggle from "~lib/components/NetworkToggle"
+import OptionsMenu from "~lib/components/OptionsMenu"
+import PasswordPrompt from "~lib/components/PasswordPrompt"
 
 interface HomeProps {
     network: Network
     account: Account
+    onNetworkChange: (network: Network) => void
     onLock: () => void
 }
 
-export default function Home({ network, account, onLock }: HomeProps) {
+export default function Home({ network, account, onNetworkChange, onLock }: HomeProps) {
     const [addressDetails, setAddressDetails] = useState<VfxAddress | null>(null)
     const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions">("Main")
+    const [showPasswordPrompt, setShowPasswordPrompt] = useState(false)
     const { message, showToast } = useToast()
 
     const fetchDetails = async () => {
@@ -92,13 +97,12 @@ export default function Home({ network, account, onLock }: HomeProps) {
                     <img src={cube} width={32} height={32} />
                     <img src={wordmark} width={100} />
                 </div>
-                <div className="pt-1">
-                    <button>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="size-5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" />
-                        </svg>
-
-                    </button>
+                <div className="pt-1 flex items-center space-x-3">
+                    <NetworkToggle network={network} onNetworkChange={onNetworkChange} />
+                    <OptionsMenu 
+                        onExportPrivateKey={() => setShowPasswordPrompt(true)}
+                        onLockWallet={onLock}
+                    />
                 </div>
             </div>
 
@@ -186,6 +190,16 @@ export default function Home({ network, account, onLock }: HomeProps) {
             )}
 
             <Toast message={message} />
+            
+            <PasswordPrompt
+                network={network}
+                isOpen={showPasswordPrompt}
+                onClose={() => setShowPasswordPrompt(false)}
+                onSuccess={() => {
+                    copyToClipboard(account.private)
+                    showToast("Private key copied to clipboard!")
+                }}
+            />
         </div>
 
     )
