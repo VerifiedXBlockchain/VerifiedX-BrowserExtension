@@ -3,9 +3,10 @@ import { useState, useRef, useEffect } from "react"
 interface OptionsMenuProps {
     onExportPrivateKey: () => void
     onLockWallet: () => void
+    onEjectWallet: () => void
 }
 
-export default function OptionsMenu({ onExportPrivateKey, onLockWallet }: OptionsMenuProps) {
+export default function OptionsMenu({ onExportPrivateKey, onLockWallet, onEjectWallet }: OptionsMenuProps) {
     const [isOpen, setIsOpen] = useState(false)
     const menuRef = useRef<HTMLDivElement>(null)
 
@@ -54,6 +55,15 @@ export default function OptionsMenu({ onExportPrivateKey, onLockWallet }: Option
                             className="w-full text-left px-4 py-2 text-sm text-white hover:bg-zinc-700 transition-colors"
                         >
                             Export Private Key
+                        </button>
+                        <button
+                            onClick={() => {
+                                onEjectWallet()
+                                setIsOpen(false)
+                            }}
+                            className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-zinc-700 hover:text-red-300 transition-colors"
+                        >
+                            Eject Wallet
                         </button>
 
                     </div>

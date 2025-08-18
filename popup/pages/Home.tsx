@@ -14,18 +14,19 @@ import CopyAddress from "~lib/components/CopyAddress"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
 import PasswordPrompt from "~lib/components/PasswordPrompt"
+import EjectWalletConfirm from "~lib/components/EjectWalletConfirm"
 
 interface HomeProps {
     network: Network
     account: Account
     onNetworkChange: (network: Network) => void
     onLock: () => void
+    onEjectWallet: () => void
 }
 
-export default function Home({ network, account, onNetworkChange, onLock }: HomeProps) {
+export default function Home({ network, account, onNetworkChange, onLock, onEjectWallet }: HomeProps) {
     const [addressDetails, setAddressDetails] = useState<VfxAddress | null>(null)
-    const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions">("Main")
-    const [showPasswordPrompt, setShowPasswordPrompt] = useState(false)
+    const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions" | "ExportKey" | "EjectWallet">("Main")
     const { message, showToast } = useToast()
 
     const fetchDetails = async () => {
@@ -100,8 +101,9 @@ export default function Home({ network, account, onNetworkChange, onLock }: Home
                 <div className="pt-1 flex items-center space-x-3">
                     <NetworkToggle network={network} onNetworkChange={onNetworkChange} />
                     <OptionsMenu 
-                        onExportPrivateKey={() => setShowPasswordPrompt(true)}
+                        onExportPrivateKey={() => setSection("ExportKey")}
                         onLockWallet={onLock}
+                        onEjectWallet={() => setSection("EjectWallet")}
                     />
                 </div>
             </div>
@@ -158,6 +160,8 @@ export default function Home({ network, account, onNetworkChange, onLock }: Home
                         {section == "Send" && "Send VFX"}
                         {section == "Transactions" && "Transactions"}
                         {section == "Receive" && "Receive VFX"}
+                        {section == "ExportKey" && "Export Private Key"}
+                        {section == "EjectWallet" && "Eject Wallet"}
                     </div>
 
                     <div className="w-12">&nbsp;</div>
@@ -189,17 +193,36 @@ export default function Home({ network, account, onNetworkChange, onLock }: Home
                 </div>
             )}
 
+            {section == "ExportKey" && (
+                <div className="p-3">
+                    <PasswordPrompt
+                        network={network}
+                        isOpen={true}
+                        onClose={() => setSection("Main")}
+                        onSuccess={() => {
+                            copyToClipboard(account.private)
+                            showToast("Private key copied to clipboard!")
+                            setSection("Main")
+                        }}
+                    />
+                </div>
+            )}
+
+            {section == "EjectWallet" && (
+                <div className="p-3">
+                    <EjectWalletConfirm
+                        network={network}
+                        isOpen={true}
+                        onClose={() => setSection("Main")}
+                        onConfirm={() => {
+                            setSection("Main")
+                            onEjectWallet()
+                        }}
+                    />
+                </div>
+            )}
+
             <Toast message={message} />
-            
-            <PasswordPrompt
-                network={network}
-                isOpen={showPasswordPrompt}
-                onClose={() => setShowPasswordPrompt(false)}
-                onSuccess={() => {
-                    copyToClipboard(account.private)
-                    showToast("Private key copied to clipboard!")
-                }}
-            />
         </div>
 
     )

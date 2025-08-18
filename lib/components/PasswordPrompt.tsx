@@ -41,21 +41,9 @@ export default function PasswordPrompt({ network, isOpen, onClose, onSuccess }: 
     if (!isOpen) return null
 
     return (
-        <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
-            <div className="bg-black w-full max-w-96 p-6">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-lg font-semibold text-white">Enter Password</h2>
-                    <button
-                        onClick={handleClose}
-                        className="text-gray-400 hover:text-white transition-colors"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-1">
+        <div>
+            <div>
+                <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <p className="text-sm text-gray-400 mb-3">
                             Enter your wallet password to export the private key.

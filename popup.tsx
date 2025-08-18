@@ -4,7 +4,7 @@ import cube from 'data-base64:~assets/vfx-cube.png'
 import wordmark from 'data-base64:~assets/wordmark.png'
 import SetupWallet from "~popup/pages/SetupWallet"
 import BackupMnemonic from "~popup/pages/BackupMnemonic"
-import { isWalletCreated, getNetwork, setNetwork } from "~lib/secureStorage"
+import { isWalletCreated, getNetwork, setNetwork, clearWallet } from "~lib/secureStorage"
 import Home from "~popup/pages/Home"
 import Unlock from "~popup/pages/Unlock"
 import { Network, type Account } from "~types/types"
@@ -100,6 +100,13 @@ function IndexPopup() {
     }, 100)
   }
 
+  const handleEjectWallet = async () => {
+    await clearWallet(network)
+    await chrome.runtime.sendMessage({ type: "LOCK_WALLET" })
+    setAccount(null)
+    setScreen("SetupWallet")
+  }
+
   if (screen == "Booting") {
     return <div className="bg-gray-950 w-96 min-h-56 text-white"></div>
 
@@ -160,6 +167,7 @@ function IndexPopup() {
             setAccount(null)
             setScreen("Unlock")
           }}
+          onEjectWallet={handleEjectWallet}
         />
       )}
     </div>
