@@ -1,8 +1,8 @@
 
 import { useState } from "react"
-import { decryptMnemonic } from "~lib/secureStorage"
+import { decryptPrivateKey } from "~lib/secureStorage"
 import { createAccountFromSecret } from "~lib/utils";
-import type { Account, Network } from "~types/types";
+import { Network, type Account } from "~types/types";
 
 interface UnlockProps {
     network: Network;
@@ -20,15 +20,22 @@ export default function Unlock({ network, onUnlockSuccess }: UnlockProps) {
         setLoading(true)
 
         try {
-
-            const mnemonic = await decryptMnemonic(password, network)
+            // Try to decrypt from current network first, then fallback to other network
+            let privateKey: string;
+            try {
+                privateKey = await decryptPrivateKey(password, network);
+            } catch (err) {
+                // If current network fails, try the other network (global password system)
+                const otherNetwork = network === Network.Mainnet ? Network.Testnet : Network.Mainnet;
+                privateKey = await decryptPrivateKey(password, otherNetwork);
+            }
 
             await chrome.runtime.sendMessage({
                 type: "UNLOCK_WALLET",
-                mnemonic: mnemonic
+                mnemonic: privateKey
             })
 
-            const account = createAccountFromSecret(network, mnemonic, 0);
+            const account = createAccountFromSecret(network, privateKey);
 
             onUnlockSuccess(account)
         } catch (err) {

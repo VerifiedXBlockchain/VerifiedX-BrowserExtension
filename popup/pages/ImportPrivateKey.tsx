@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { encryptMnemonic } from "~lib/secureStorage"
+import { encryptPrivateKey } from "~lib/secureStorage"
 import { validatePrivateKey, privateKeyToAccount } from "~lib/utils"
 import type { Network, Account } from "~types/types"
 
@@ -36,9 +36,8 @@ export default function ImportPrivateKey({ network, password, onSuccess, onBack 
             // Create account from private key
             const account = privateKeyToAccount(network, cleanKey)
 
-            // Store the private key as a "mnemonic" for the wallet system
-            // This allows it to work with the existing encryption/unlock flow
-            await encryptMnemonic(cleanKey, password, network)
+            // Store the private key directly
+            await encryptPrivateKey(cleanKey, password, network)
 
             // Unlock in background memory
             await chrome.runtime.sendMessage({

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { encryptMnemonic } from "~lib/secureStorage"
+import { encryptPrivateKey } from "~lib/secureStorage"
 import { validateMnemonic, normalizeMnemonic, mnemonicToAccount } from "~lib/utils"
 import type { Network, Account } from "~types/types"
 
@@ -53,13 +53,15 @@ export default function RecoverMnemonic({ network, password, onSuccess, onBack }
             // Test that we can create an account from this mnemonic
             const account = mnemonicToAccount(network, mnemonic, 0)
 
-            // Store the mnemonic
-            await encryptMnemonic(mnemonic, password, network)
+            // Derive and store the private key (not the mnemonic)
+            const client = new window.vfx.VfxClient(network)
+            const privateKey = client.privateKeyFromMneumonic(mnemonic, 0)
+            await encryptPrivateKey(privateKey, password, network)
 
             // Unlock in background memory
             await chrome.runtime.sendMessage({
                 type: "UNLOCK_WALLET",
-                mnemonic: mnemonic
+                mnemonic: privateKey
             })
 
             onSuccess(account)

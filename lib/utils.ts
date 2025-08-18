@@ -96,13 +96,7 @@ export const normalizeMnemonic = (input: string): string[] => {
         .filter(word => word.length > 0);
 }
 
-export const createAccountFromSecret = (network: Network, secret: string, index: number = 0): Account => {
-    // Check if this is a private key (64 hex chars) or mnemonic
-    if (validatePrivateKey(secret)) {
-        // It's a private key - use directly
-        return privateKeyToAccount(network, secret);
-    } else {
-        // It's a mnemonic - derive private key first
-        return mnemonicToAccount(network, secret, index);
-    }
+export const createAccountFromSecret = (network: Network, privateKey: string): Account => {
+    // Now we always store private keys, so this is simplified
+    return privateKeyToAccount(network, privateKey);
 }

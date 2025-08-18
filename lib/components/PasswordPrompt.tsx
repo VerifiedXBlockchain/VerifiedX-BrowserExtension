@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { decryptMnemonic } from "~lib/secureStorage"
+import { decryptPrivateKey } from "~lib/secureStorage"
 import { Network } from "~types/types"
 
 interface PasswordPromptProps {
@@ -20,8 +20,17 @@ export default function PasswordPrompt({ network, isOpen, onClose, onSuccess }: 
         setLoading(true)
 
         try {
-            const mnemonic = await decryptMnemonic(password, network)
-            onSuccess(mnemonic)
+            // Try to decrypt from current network first, then fallback to other network
+            let privateKey: string;
+            try {
+                privateKey = await decryptPrivateKey(password, network);
+            } catch (err) {
+                // If current network fails, try the other network (global password system)
+                const otherNetwork = network === Network.Mainnet ? Network.Testnet : Network.Mainnet;
+                privateKey = await decryptPrivateKey(password, otherNetwork);
+            }
+            
+            onSuccess(privateKey)
             setPassword("")
             onClose()
         } catch (err) {

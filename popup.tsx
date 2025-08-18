@@ -4,7 +4,7 @@ import cube from 'data-base64:~assets/vfx-cube.png'
 import wordmark from 'data-base64:~assets/wordmark.png'
 import SetupWallet from "~popup/pages/SetupWallet"
 import BackupMnemonic from "~popup/pages/BackupMnemonic"
-import { isWalletCreated, getNetwork, setNetwork, clearWallet } from "~lib/secureStorage"
+import { isWalletCreated, hasAnyWallet, getNetwork, setNetwork, clearWallet } from "~lib/secureStorage"
 import Home from "~popup/pages/Home"
 import Unlock from "~popup/pages/Unlock"
 import ImportPrivateKey from "~popup/pages/ImportPrivateKey"
@@ -26,7 +26,7 @@ function IndexPopup() {
       const savedNetwork = await getNetwork()
       setNetworkState(savedNetwork)
 
-      const hasWallet = await isWalletCreated(savedNetwork)
+      const hasWallet = await hasAnyWallet()
 
       if (!hasWallet) {
         setScreen("SetupWallet")
@@ -44,7 +44,7 @@ function IndexPopup() {
           return
         }
 
-        const account = createAccountFromSecret(savedNetwork, mnemonic, 0);
+        const account = createAccountFromSecret(savedNetwork, mnemonic);
 
         setAccount(account)
         setScreen("Home")
@@ -86,21 +86,8 @@ function IndexPopup() {
         return
       }
 
-      const { unlocked } = await chrome.runtime.sendMessage({ type: "IS_UNLOCKED" })
-
-      if (unlocked) {
-        const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
-
-        if (mnemonic) {
-          const account = createAccountFromSecret(newNetwork, mnemonic, 0);
-          setAccount(account)
-          setScreen("Home")
-        } else {
-          setScreen("Unlock")
-        }
-      } else {
-        setScreen("Unlock")
-      }
+      // Always go through unlock to ensure we get the correct network's private key
+      setScreen("Unlock")
     }, 100)
   }
 
@@ -126,21 +113,32 @@ function IndexPopup() {
       const { unlocked } = await chrome.runtime.sendMessage({ type: "IS_UNLOCKED" })
       
       if (unlocked) {
-        const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
-        
-        if (mnemonic) {
-          const account = createAccountFromSecret(newNetwork, mnemonic, 0);
-          setAccount(account)
-          setScreen("Home")
-        } else {
-          setScreen("Unlock")
-        }
+        // We need to get the mnemonic for this specific network
+        // The background memory might have the wrong network's mnemonic
+        // So we need to use the Unlock component to get the right mnemonic
+        setScreen("Unlock")
       } else {
         setScreen("Unlock")
       }
     } else {
-      // No wallet exists for this network, go to setup
-      setScreen("SetupWallet")
+      // No wallet exists for this network - check if user has wallet on other network
+      const hasAnyWalletExists = await hasAnyWallet()
+      
+      if (hasAnyWalletExists) {
+        // User has wallet on other network - check if it's unlocked
+        const { unlocked } = await chrome.runtime.sendMessage({ type: "IS_UNLOCKED" })
+        
+        if (unlocked) {
+          // Wallet is unlocked, go to setup to create wallet for this network
+          setScreen("SetupWallet")
+        } else {
+          // Wallet exists but locked, show unlock screen
+          setScreen("Unlock")
+        }
+      } else {
+        // No wallet exists anywhere, go to setup
+        setScreen("SetupWallet")
+      }
     }
   }
 
@@ -188,9 +186,10 @@ function IndexPopup() {
           network={network}
           mnemonic={mnemonic}
           onConfirm={() => {
-            const account = createAccountFromSecret(network, mnemonic, 0);
-
-
+            // Convert mnemonic to private key first
+            const client = new window.vfx.VfxClient(network)
+            const privateKey = client.privateKeyFromMneumonic(mnemonic, 0)
+            const account = createAccountFromSecret(network, privateKey);
 
             setAccount(account)
             setScreen("Home")

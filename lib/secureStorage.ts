@@ -18,7 +18,7 @@ function decode(buf: ArrayBuffer) {
 }
 
 // Derive a cryptographic key from a password
-async function deriveKey(password: string, salt: Uint8Array, network: Network): Promise<CryptoKey> {
+async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
     const baseKey = await crypto.subtle.importKey(
         "raw",
         encode(password),
@@ -42,15 +42,15 @@ async function deriveKey(password: string, salt: Uint8Array, network: Network): 
 }
 
 
-export async function encryptMnemonic(mnemonic: string, password: string, network: Network) {
+export async function encryptPrivateKey(privateKey: string, password: string, network: Network) {
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const iv = crypto.getRandomValues(new Uint8Array(12))
-    const key = await deriveKey(password, salt, network)
+    const key = await deriveKey(password, salt)
 
     const cipherText = await crypto.subtle.encrypt(
         { name: "AES-GCM", iv },
         key,
-        encode(mnemonic)
+        encode(privateKey)
     )
 
     const encryptedData = {
@@ -62,7 +62,7 @@ export async function encryptMnemonic(mnemonic: string, password: string, networ
     await storage.set(`${network}-wallet`, encryptedData)
 }
 
-export async function decryptMnemonic(password: string, network: Network): Promise<string> {
+export async function decryptPrivateKey(password: string, network: Network): Promise<string> {
     const result = await storage.get(`${network}-wallet`)
 
     if (!result) {
@@ -70,7 +70,7 @@ export async function decryptMnemonic(password: string, network: Network): Promi
     }
 
     const { salt, iv, cipherText } = result as any
-    const key = await deriveKey(password, new Uint8Array(salt), network)
+    const key = await deriveKey(password, new Uint8Array(salt))
 
     const decrypted = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: new Uint8Array(iv) },
@@ -84,6 +84,13 @@ export async function decryptMnemonic(password: string, network: Network): Promi
 export async function isWalletCreated(network: Network): Promise<boolean> {
     const result = await storage.get(`${network}-wallet`)
     return !!result
+}
+
+// Check if any wallet exists across both networks (for global password system)
+export async function hasAnyWallet(): Promise<boolean> {
+    const mainnet = await storage.get(`${Network.Mainnet}-wallet`)
+    const testnet = await storage.get(`${Network.Testnet}-wallet`)
+    return !!(mainnet || testnet)
 }
 
 export async function clearWallet(network: Network) {
