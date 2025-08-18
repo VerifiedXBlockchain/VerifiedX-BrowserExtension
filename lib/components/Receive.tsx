@@ -7,17 +7,15 @@ import { validateDomain } from "~lib/utils";
 interface ReceiveProps {
     address: VfxAddress;
     network: Network;
-
+    handleCreateVfxDomain: (domain: string) => void;
 }
 
 
-export default function Receive({ address, network }: ReceiveProps) {
-
+export default function Receive({ address, network, handleCreateVfxDomain }: ReceiveProps) {
 
     const [creatingDomain, setCreatingDomain] = useState<boolean>(false);
     const [newDomain, setNewDomain] = useState<string>("");
     const [newDomainError, setNewDomainError] = useState<string>("");
-
 
     const handleSubmit = async (e: React.FormEvent) => {
 
@@ -51,13 +49,16 @@ export default function Receive({ address, network }: ReceiveProps) {
 
         if (hasError) return;
 
-        //TODO create domain
+        handleCreateVfxDomain(domain);
+
+        setNewDomain("");
+        setCreatingDomain(false);
 
     }
     return (
         <div className="flex flex-col space-y-1">
             <p className="text-center">Copy and Paste your address:</p>
-            <CopyAddress address={address.address} network={network} />
+            <CopyAddress address={address.address} network={network} adnr={address.adnr} />
 
             {!address.adnr && (
                 <div className='pt-2'>

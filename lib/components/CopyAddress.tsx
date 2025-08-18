@@ -37,8 +37,8 @@ export default function CopyAddress({ address, network, adnr }: Props) {
 
             </div>
             {adnr && (
-                <div>
-                    <div className="text-center text-xs text-gray-400 break-all">@{adnr}</div>
+                <div className="flex flex-row space-x-2 justify-center">
+                    <div className="text-center text-xs text-gray-400 break-all"><span className="text-gray-500">Domain:</span> {adnr}</div>
                     <button
                         onClick={handleCopyAdnr}
                         className="text-xs text-gray-400 hover:text-blue-400 "

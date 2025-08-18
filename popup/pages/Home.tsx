@@ -11,6 +11,7 @@ import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
+
 interface HomeProps {
     network: Network
     account: Account
@@ -21,8 +22,6 @@ export default function Home({ network, account, onLock }: HomeProps) {
     const [addressDetails, setAddressDetails] = useState<VfxAddress | null>(null)
     const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions">("Main")
     const { message, showToast } = useToast()
-
-
 
     const fetchDetails = async () => {
 
@@ -52,6 +51,22 @@ export default function Home({ network, account, onLock }: HomeProps) {
         } catch (err) {
             console.error("Failed to fetch balance:", err)
             return null;
+        }
+    }
+
+    const handleCreateDomain = async (domain: string) => {
+
+        const client = new window.vfx.VfxClient(network);
+        const kp: Keypair = {
+            address: account.address,
+            privateKey: account.private,
+            publicKey: account.public,
+        }
+
+        const hash = await client.buyVfxDomain(kp, domain);
+
+        if (hash) {
+            showToast("Transaction sent!")
         }
     }
 
@@ -160,7 +175,7 @@ export default function Home({ network, account, onLock }: HomeProps) {
 
             {section == "Receive" && (
                 <div className="p-3">
-                    <Receive address={addressDetails} network={network} />
+                    <Receive address={addressDetails} network={network} handleCreateVfxDomain={handleCreateDomain} />
                 </div>
             )}
 
