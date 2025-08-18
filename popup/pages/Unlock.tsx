@@ -1,7 +1,7 @@
 
 import { useState } from "react"
 import { decryptMnemonic } from "~lib/secureStorage"
-import { mnemonicToAccount } from "~lib/utils";
+import { createAccountFromSecret } from "~lib/utils";
 import type { Account, Network } from "~types/types";
 
 interface UnlockProps {
@@ -28,7 +28,7 @@ export default function Unlock({ network, onUnlockSuccess }: UnlockProps) {
                 mnemonic: mnemonic
             })
 
-            const account = mnemonicToAccount(network, mnemonic, 0);
+            const account = createAccountFromSecret(network, mnemonic, 0);
 
             onUnlockSuccess(account)
         } catch (err) {

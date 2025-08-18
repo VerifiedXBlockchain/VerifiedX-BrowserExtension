@@ -1,3 +1,10 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Prevent white flash on load */
+html, body {
+  background-color: rgb(3 7 18); /* Same as bg-gray-950 */
+  margin: 0;
+  padding: 0;
+}

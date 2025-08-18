@@ -9,9 +9,10 @@ import Home from "~popup/pages/Home"
 import Unlock from "~popup/pages/Unlock"
 import ImportPrivateKey from "~popup/pages/ImportPrivateKey"
 import RecoverMnemonic from "~popup/pages/RecoverMnemonic"
+import NetworkToggle from "~lib/components/NetworkToggle"
 import { Network, type Account } from "~types/types"
 import "assets/vfx.js"
-import { mnemonicToAccount } from "~lib/utils"
+import { createAccountFromSecret } from "~lib/utils"
 
 function IndexPopup() {
   const [network, setNetworkState] = useState<Network>(Network.Testnet)
@@ -43,7 +44,7 @@ function IndexPopup() {
           return
         }
 
-        const account = mnemonicToAccount(savedNetwork, mnemonic, 0);
+        const account = createAccountFromSecret(savedNetwork, mnemonic, 0);
 
         setAccount(account)
         setScreen("Home")
@@ -91,7 +92,7 @@ function IndexPopup() {
         const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
 
         if (mnemonic) {
-          const account = mnemonicToAccount(newNetwork, mnemonic, 0);
+          const account = createAccountFromSecret(newNetwork, mnemonic, 0);
           setAccount(account)
           setScreen("Home")
         } else {
@@ -110,19 +111,58 @@ function IndexPopup() {
     setScreen("SetupWallet")
   }
 
+  const handleSetupNetworkChange = async (newNetwork: Network) => {
+    // Show booting state briefly to prevent flashing
+    setScreen("Booting")
+    
+    await setNetwork(newNetwork)
+    setNetworkState(newNetwork)
+    
+    // Check if this network already has a wallet
+    const hasWallet = await isWalletCreated(newNetwork)
+    
+    if (hasWallet) {
+      // Network has existing wallet - check if it's unlocked
+      const { unlocked } = await chrome.runtime.sendMessage({ type: "IS_UNLOCKED" })
+      
+      if (unlocked) {
+        const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
+        
+        if (mnemonic) {
+          const account = createAccountFromSecret(newNetwork, mnemonic, 0);
+          setAccount(account)
+          setScreen("Home")
+        } else {
+          setScreen("Unlock")
+        }
+      } else {
+        setScreen("Unlock")
+      }
+    } else {
+      // No wallet exists for this network, go to setup
+      setScreen("SetupWallet")
+    }
+  }
+
   if (screen == "Booting") {
     return <div className="bg-gray-950 w-96 min-h-56 text-white"></div>
 
   }
 
   return (
-    <div className="bg-gray-950 w-96 text-white">
+    <div className="relative bg-gray-950 w-96 text-white">
       {screen !== "Home" && (
-        <div className="flex justify-center items-center flex-col pt-4">
-          <img src={cube} width={64} height={64} />
-          <div className="pt-1" />
-          <img src={wordmark} width={100} />
-        </div>)}
+        <>
+          <div className="absolute top-3 right-3 text-xs z-10">
+            <NetworkToggle network={network} onNetworkChange={handleSetupNetworkChange} />
+          </div>
+          <div className="flex justify-center items-center flex-col pt-4">
+            <img src={cube} width={64} height={64} />
+            <div className="pt-1" />
+            <img src={wordmark} width={100} />
+          </div>
+        </>
+      )}
 
 
       {screen === "SetupWallet" && (
@@ -148,7 +188,7 @@ function IndexPopup() {
           network={network}
           mnemonic={mnemonic}
           onConfirm={() => {
-            const account = mnemonicToAccount(network, mnemonic, 0);
+            const account = createAccountFromSecret(network, mnemonic, 0);
 
 
 
