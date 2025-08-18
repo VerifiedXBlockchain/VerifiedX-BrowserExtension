@@ -1,6 +1,7 @@
 import type { Network, VfxAddress } from "~types/types";
 import CopyAddress from "./CopyAddress";
 import { useState } from "react"
+import { validateDomain } from "~lib/utils";
 
 
 interface ReceiveProps {
@@ -18,8 +19,39 @@ export default function Receive({ address, network }: ReceiveProps) {
     const [newDomainError, setNewDomainError] = useState<string>("");
 
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
 
+        e.preventDefault();
+        setNewDomainError("");
+
+        let hasError = false;
+
+        const domain = newDomain.trim().toLowerCase().replaceAll(".vfx", "");
+
+        if (!domain) {
+            setNewDomainError("Domain Name Required");
+            hasError = true;
+        }
+
+
+        if (!validateDomain(domain)) {
+            setNewDomainError("Invalid domain. Must include only numbers, letters, and/or hyphens");
+            hasError = true;
+        }
+
+        const client = new window.vfx.VfxClient(network)
+
+        const isAvailable = await client.domainAvailable(domain);
+
+        if (!isAvailable) {
+            setNewDomainError("Domain name not available");
+            hasError = true;
+        }
+
+
+        if (hasError) return;
+
+        //TODO create domain
 
     }
     return (
@@ -49,6 +81,7 @@ export default function Receive({ address, network }: ReceiveProps) {
                                     <input
                                         id="toAddress"
                                         type="text"
+                                        autoFocus
                                         value={newDomain}
                                         onChange={(e) => setNewDomain(e.target.value)}
                                         placeholder="mydomain.vfx"

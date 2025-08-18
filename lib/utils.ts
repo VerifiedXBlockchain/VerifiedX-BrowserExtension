@@ -24,7 +24,7 @@ export const copyToClipboard = (text: string) => {
     })
 }
 
-export const validateVfxAddress = (address: string, network: Network) => {
+export const validateVfxAddress = (address: string, network: Network): boolean => {
     if (!address) return false;
 
     if (address.length !== 34) {
@@ -41,4 +41,8 @@ export const validateVfxAddress = (address: string, network: Network) => {
 
     return false;
 
+}
+
+export const validateDomain = (input: string): boolean => {
+    return /^[a-zA-Z0-9-]+$/.test(input);
 }
