@@ -11,6 +11,7 @@ import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
+import { addPendingTransaction } from "~lib/secureStorage"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
 import PasswordPrompt from "~lib/components/PasswordPrompt"
@@ -52,27 +53,75 @@ export default function Home({ network, account, onNetworkChange, onLock, onEjec
 
             const hash = await client.sendCoin(kp, toAddress, amount)
 
+            // Create pending transaction immediately
+            if (hash) {
+                const pendingTx = {
+                    hash: hash,
+                    height: -1, // Use -1 to indicate pending
+                    type: 1, // Assuming 1 is send type
+                    type_label: "Tx",
+                    to_address: toAddress,
+                    from_address: account.address,
+                    total_amount: amount,
+                    total_fee: 0.0001, // Estimated fee
+                    data: null,
+                    date_crafted: new Date().toISOString(),
+                    signature: "",
+                    nft: null,
+                    unlock_time: null,
+                    callback_details: null,
+                    recovery_details: null,
+                    isPending: true // Flag to indicate this is pending
+                }
+
+                await addPendingTransaction(network, account.address, pendingTx)
+            }
+
             return hash;
 
         } catch (err) {
-            console.error("Failed to fetch balance:", err)
+            console.error("Failed to send coin:", err)
             return null;
         }
     }
 
-    const handleCreateDomain = async (domain: string) => {
+    const handleCreateDomain = async (domain: string): Promise<void> => {
+        try {
+            const client = new window.vfx.VfxClient(network);
+            const kp: Keypair = {
+                address: account.address,
+                privateKey: account.private,
+                publicKey: account.public,
+            }
 
-        const client = new window.vfx.VfxClient(network);
-        const kp: Keypair = {
-            address: account.address,
-            privateKey: account.private,
-            publicKey: account.public,
-        }
+            const hash = await client.buyVfxDomain(kp, domain);
 
-        const hash = await client.buyVfxDomain(kp, domain);
+            if (hash) {
+                // Create pending transaction immediately
+                const pendingTx = {
+                    hash: hash,
+                    height: -1, // Use -1 to indicate pending
+                    type: 2, // Assuming 2 is domain purchase type
+                    type_label: "Domain",
+                    to_address: account.address,
+                    from_address: account.address,
+                    total_amount: 5.0, // Domain cost
+                    total_fee: 0.0001, // Estimated fee
+                    data: domain,
+                    date_crafted: new Date().toISOString(),
+                    signature: "",
+                    nft: null,
+                    unlock_time: null,
+                    callback_details: null,
+                    recovery_details: null,
+                    isPending: true // Flag to indicate this is pending
+                }
 
-        if (hash) {
-            showToast("Transaction sent!")
+                await addPendingTransaction(network, account.address, pendingTx);
+                showToast("Transaction sent!")
+            }
+        } catch (err) {
+            console.error("Failed to create domain:", err)
         }
     }
 
@@ -100,7 +149,7 @@ export default function Home({ network, account, onNetworkChange, onLock, onEjec
                 </div>
                 <div className="pt-1 flex items-center space-x-3">
                     <NetworkToggle network={network} onNetworkChange={onNetworkChange} />
-                    <OptionsMenu 
+                    <OptionsMenu
                         onExportPrivateKey={() => setSection("ExportKey")}
                         onLockWallet={onLock}
                         onEjectWallet={() => setSection("EjectWallet")}

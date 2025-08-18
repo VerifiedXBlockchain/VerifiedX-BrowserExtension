@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react"
 import type { Network, Transaction, VfxAddress } from "~types/types"
 import TransactionCard from "./TransactionCard"
+import { getPendingTransactions, removePendingTransaction } from "~lib/secureStorage"
 
 interface Props {
     address: VfxAddress
@@ -11,6 +12,7 @@ export default function TransactionList({ address, network }: Props) {
     const client = new window.vfx.VfxClient(network)
 
     const [transactions, setTransactions] = useState<Transaction[]>([])
+    const [pendingTransactions, setPendingTransactions] = useState<any[]>([])
     const [page, setPage] = useState<number>(1)
     const [numPages, setNumPages] = useState<number>(1)
     const [loading, setLoading] = useState(false)
@@ -24,9 +26,23 @@ export default function TransactionList({ address, network }: Props) {
             setLoading(true)
             const data = await client.listTransactionsForAddress(address.address, pageNum)
 
-
             if (pageNum === 1) {
                 setTransactions(data.results)
+                
+                // Remove any pending transactions that now exist in real transactions
+                const realHashes = new Set(data.results.map(tx => tx.hash))
+                const pending = await getPendingTransactions(network, address.address)
+                
+                // Remove confirmed transactions from pending
+                for (const pendingTx of pending) {
+                    if (realHashes.has(pendingTx.hash)) {
+                        await removePendingTransaction(network, address.address, pendingTx.hash)
+                    }
+                }
+                
+                // Update pending transactions
+                const updatedPending = await getPendingTransactions(network, address.address)
+                setPendingTransactions(updatedPending)
             } else {
                 setTransactions((prev) => [...prev, ...data.results])
             }
@@ -38,7 +54,16 @@ export default function TransactionList({ address, network }: Props) {
         } finally {
             setLoading(false)
         }
-    }, [address.address, loading, numPages])
+    }, [address.address, loading, numPages, network])
+
+    // Load pending transactions initially
+    useEffect(() => {
+        const loadPending = async () => {
+            const pending = await getPendingTransactions(network, address.address)
+            setPendingTransactions(pending)
+        }
+        loadPending()
+    }, [address.address, network])
 
     // Initial load
     useEffect(() => {
@@ -73,34 +98,54 @@ export default function TransactionList({ address, network }: Props) {
     useEffect(() => {
         const pollForNewTxs = setInterval(async () => {
             try {
-                if (transactions.length === 0) return
-
                 const page1 = await client.listTransactionsForAddress(address.address, 1)
 
+                // Check for new transactions
                 const newTxs = page1.results.filter(
                     (tx) => !transactions.find((t) => t.hash === tx.hash)
                 )
 
+                // Check if any pending transactions are now confirmed
+                const realHashes = new Set(page1.results.map(tx => tx.hash))
+                const currentPending = await getPendingTransactions(network, address.address)
+                let pendingUpdated = false
+
+                for (const pendingTx of currentPending) {
+                    if (realHashes.has(pendingTx.hash)) {
+                        await removePendingTransaction(network, address.address, pendingTx.hash)
+                        pendingUpdated = true
+                    }
+                }
+
+                // Update states if there are changes
                 if (newTxs.length > 0) {
                     setTransactions((prev) => [...newTxs, ...prev])
                     setPage(page1.page)
                     setNumPages(page1.num_pages)
                 }
+
+                if (pendingUpdated) {
+                    const updatedPending = await getPendingTransactions(network, address.address)
+                    setPendingTransactions(updatedPending)
+                }
             } catch (err) {
                 console.error("Polling for new transactions failed:", err)
             }
-        }, 30_000)
+        }, 10_000) // Reduced to 10 seconds for faster updates
 
         return () => clearInterval(pollForNewTxs)
-    }, [address.address, transactions])
+    }, [address.address, transactions, network])
+
+    // Combine pending and real transactions, pending first
+    const allTransactions = [...pendingTransactions, ...transactions]
 
     return (
         <div className="space-y-4 overflow-y-auto">
-            {!transactions.length && !loading && (
+            {!allTransactions.length && !loading && (
                 <div className="text-sm text-gray-400 text-center">No transactions yet.</div>
             )}
 
-            {transactions.map((tx) => (
+            {allTransactions.map((tx) => (
                 <TransactionCard key={tx.hash} tx={tx} address={address.address} network={network} />
             ))}
 

@@ -41106,6 +41106,16 @@
             const prototype3 = getPrototypeOf(val);
             return (prototype3 === null || prototype3 === Object.prototype || Object.getPrototypeOf(prototype3) === null) && !(toStringTag in val) && !(iterator in val);
           };
+          var isEmptyObject = (val) => {
+            if (!isObject(val) || isBuffer(val)) {
+              return false;
+            }
+            try {
+              return Object.keys(val).length === 0 && Object.getPrototypeOf(val) === Object.prototype;
+            } catch (e) {
+              return false;
+            }
+          };
           var isDate = kindOfTest("Date");
           var isFile = kindOfTest("File");
           var isBlob = kindOfTest("Blob");
@@ -41133,6 +41143,9 @@
                 fn.call(null, obj[i], i, obj);
               }
             } else {
+              if (isBuffer(obj)) {
+                return;
+              }
               const keys = allOwnKeys ? Object.getOwnPropertyNames(obj) : Object.keys(obj);
               const len = keys.length;
               let key;
@@ -41143,6 +41156,9 @@
             }
           }
           function findKey(obj, key) {
+            if (isBuffer(obj)) {
+              return null;
+            }
             key = key.toLowerCase();
             const keys = Object.keys(obj);
             let i = keys.length;
@@ -41339,6 +41355,9 @@
                 if (stack.indexOf(source) >= 0) {
                   return;
                 }
+                if (isBuffer(source)) {
+                  return source;
+                }
                 if (!("toJSON" in source)) {
                   stack[i] = source;
                   const target = isArray(source) ? [] : {};
@@ -41388,6 +41407,7 @@
             isBoolean,
             isObject,
             isPlainObject,
+            isEmptyObject,
             isReadableStream,
             isRequest,
             isResponse,
@@ -41562,6 +41582,9 @@
                 return "";
               if (utils_default.isDate(value)) {
                 return value.toISOString();
+              }
+              if (utils_default.isBoolean(value)) {
+                return value.toString();
               }
               if (!useBlob && utils_default.isBlob(value)) {
                 throw new AxiosError_default("Blob is not supported. Use a Buffer instead.");
@@ -41811,15 +41834,16 @@
 
           // node_modules/axios/lib/helpers/toURLEncodedForm.js
           function toURLEncodedForm(data, options) {
-            return toFormData_default(data, new platform_default.classes.URLSearchParams(), Object.assign({
+            return toFormData_default(data, new platform_default.classes.URLSearchParams(), {
               visitor: function (value, key, path, helpers) {
                 if (platform_default.isNode && utils_default.isBuffer(value)) {
                   this.append(key, value.toString("base64"));
                   return false;
                 }
                 return helpers.defaultVisitor.apply(this, arguments);
-              }
-            }, options));
+              },
+              ...options
+            });
           }
 
           // node_modules/axios/lib/helpers/formDataToJSON.js
@@ -42359,7 +42383,7 @@
                 clearTimeout(timer);
                 timer = null;
               }
-              fn.apply(null, args);
+              fn(...args);
             };
             const throttled = (...args) => {
               const now = Date.now();
@@ -42549,7 +42573,7 @@
               validateStatus: mergeDirectKeys,
               headers: (a, b, prop) => mergeDeepProperties(headersToObject(a), headersToObject(b), prop, true)
             };
-            utils_default.forEach(Object.keys(Object.assign({}, config1, config2)), function computeConfigValue(prop) {
+            utils_default.forEach(Object.keys({ ...config1, ...config2 }), function computeConfigValue(prop) {
               const merge2 = mergeMap[prop] || mergeDeepProperties;
               const configValue = merge2(config1[prop], config2[prop], prop);
               utils_default.isUndefined(configValue) && merge2 !== mergeDirectKeys || (config[prop] = configValue);
@@ -42947,7 +42971,7 @@
                 duplex: "half",
                 credentials: isCredentialsSupported ? withCredentials : void 0
               });
-              let response = await fetch(request);
+              let response = await fetch(request, fetchOptions);
               const isStreamResponse = supportsResponseStream && (responseType === "stream" || responseType === "response");
               if (supportsResponseStream && (onDownloadProgress || isStreamResponse && unsubscribe)) {
                 const options = {};
@@ -43094,7 +43118,7 @@
           }
 
           // node_modules/axios/lib/env/data.js
-          var VERSION = "1.9.0";
+          var VERSION = "1.11.0";
 
           // node_modules/axios/lib/helpers/validator.js
           var validators = {};
@@ -43266,8 +43290,8 @@
               let len;
               if (!synchronousRequestInterceptors) {
                 const chain = [dispatchRequest.bind(this), void 0];
-                chain.unshift.apply(chain, requestInterceptorChain);
-                chain.push.apply(chain, responseInterceptorChain);
+                chain.unshift(...requestInterceptorChain);
+                chain.push(...responseInterceptorChain);
                 len = chain.length;
                 promise = Promise.resolve(config);
                 while (i < len) {
@@ -43790,6 +43814,14 @@
                   return true;
                 }
               });
+              this.lookupDomain = (domain) => __async(this, null, function* () {
+                try {
+                  const result = yield this.makeJsonRequest(`/adnr/${domain}/`);
+                  return (result == null ? void 0 : result.address) || null;
+                } catch (e) {
+                  return null;
+                }
+              });
             }
           };
 
@@ -43841,6 +43873,9 @@
               this.sendCoin = (keypair, toAddress, amount) => __async(this, null, function* () {
                 const txBuilder = new RawTransactionService({ network: this.network, keypair, toAddress, amount });
                 return yield txBuilder.process(this.dryRun);
+              });
+              this.lookupDomain = (domain) => __async(this, null, function* () {
+                return this.addressApiClient.lookupDomain(domain);
               });
               this.buyVfxDomain = (keypair, domain) => __async(this, null, function* () {
                 domain = cleanVfxDomain(domain);

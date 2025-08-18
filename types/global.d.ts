@@ -14,6 +14,7 @@ interface IVfxClient {
         // Explorer API
         getAddressDetails: (address: string) => Promise<VfxAddress | null>
         domainAvailable: (domain: string) => Promise<boolean>
+        lookupDomain: (domain: string) => Promise<string | null>
         listTransactionsForAddress: (address: string, page: number = 1, limit: number = 10) => Promise<PaginatedResponse<Transaction> | null>
 
         // Transactions

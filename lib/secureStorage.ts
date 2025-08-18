@@ -137,3 +137,24 @@ export async function getNetwork(): Promise<Network> {
     const network = await storage.get<Network>("selectedNetwork")
     return network || Network.Testnet
 }
+
+// Pending transactions management
+export async function addPendingTransaction(network: Network, address: string, tx: any) {
+    const key = `${network}-${address}-pending-txs`
+    const existing = await storage.get<{[hash: string]: any}>(key) || {}
+    existing[tx.hash] = tx
+    await storage.set(key, existing)
+}
+
+export async function getPendingTransactions(network: Network, address: string): Promise<any[]> {
+    const key = `${network}-${address}-pending-txs`
+    const pending = await storage.get<{[hash: string]: any}>(key) || {}
+    return Object.values(pending)
+}
+
+export async function removePendingTransaction(network: Network, address: string, hash: string) {
+    const key = `${network}-${address}-pending-txs`
+    const existing = await storage.get<{[hash: string]: any}>(key) || {}
+    delete existing[hash]
+    await storage.set(key, existing)
+}

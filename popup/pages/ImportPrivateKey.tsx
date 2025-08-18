@@ -18,7 +18,12 @@ export default function ImportPrivateKey({ network, password, onSuccess, onBack 
     const handleImport = async () => {
         setError("")
 
-        const cleanKey = privateKey.trim()
+        let cleanKey = privateKey.trim()
+        
+        // Remove "00" prefix if present and makes the key 66 characters
+        if (cleanKey.length === 66 && cleanKey.startsWith("00")) {
+            cleanKey = cleanKey.substring(2)
+        }
         
         if (!validatePrivateKey(cleanKey)) {
             setError("Invalid private key. Must be 64 hex characters.")
