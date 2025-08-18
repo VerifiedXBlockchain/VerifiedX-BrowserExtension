@@ -5,9 +5,11 @@ import type { Network } from "~types/types"
 interface Props {
     network: Network
     onCreate: (createdMnemonic: string) => void
+    onRecoverMnemonic: (password: string) => void
+    onImportPrivateKey: (password: string) => void
 }
 
-export default function SetupWallet({ network, onCreate }: Props) {
+export default function SetupWallet({ network, onCreate, onRecoverMnemonic, onImportPrivateKey }: Props) {
     const [password, setPassword] = useState("")
     const [confirmPassword, setConfirmPassword] = useState("")
     const [error, setError] = useState("")
@@ -52,6 +54,34 @@ export default function SetupWallet({ network, onCreate }: Props) {
         }
     }
 
+    const validatePassword = () => {
+        setError("")
+
+        if (password.length < 8) {
+            setError("Password must be at least 8 characters.")
+            return false
+        }
+
+        if (password !== confirmPassword) {
+            setError("Passwords do not match.")
+            return false
+        }
+
+        return true
+    }
+
+    const handleRecoverMnemonic = () => {
+        if (validatePassword()) {
+            onRecoverMnemonic(password)
+        }
+    }
+
+    const handleImportPrivateKey = () => {
+        if (validatePassword()) {
+            onImportPrivateKey(password)
+        }
+    }
+
     return (
         <div className="flex flex-col p-6 space-y-6 min-w-[320px] text-white">
             <h1 className="text-2xl font-light text-center">Create Your Wallet</h1>
@@ -77,11 +107,32 @@ export default function SetupWallet({ network, onCreate }: Props) {
 
                 <button
                     onClick={handleCreateWallet}
-                    className="bg-blue-600 hover:bg-blue-500 transition text-white p-3 rounded font-semibold disabled:bg-blue-400"
+                    className="bg-blue-600 hover:bg-blue-500 transition text-white p-3 rounded-lg font-semibold disabled:bg-blue-400"
                     disabled={loading}
                 >
                     {loading ? "Creating..." : "Create Wallet"}
                 </button>
+
+                <div className="flex items-center space-x-4 py-1">
+                    <div className="flex-1 h-px bg-gray-600"></div>
+                    <span className="text-gray-400 text-sm">or</span>
+                    <div className="flex-1 h-px bg-gray-600"></div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                    <button
+                        onClick={handleRecoverMnemonic}
+                        className="bg-zinc-700 hover:bg-zinc-600 text-white p-2 rounded-lg transition-colors font-medium text-xs"
+                    >
+                        Import Mnemonic
+                    </button>
+                    <button
+                        onClick={handleImportPrivateKey}
+                        className="bg-zinc-700 hover:bg-zinc-600 text-white p-2 rounded-lg transition-colors font-medium text-xs"
+                    >
+                        Import Private Key
+                    </button>
+                </div>
             </div>
         </div>
     )

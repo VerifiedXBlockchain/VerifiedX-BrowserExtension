@@ -7,6 +7,8 @@ import BackupMnemonic from "~popup/pages/BackupMnemonic"
 import { isWalletCreated, getNetwork, setNetwork, clearWallet } from "~lib/secureStorage"
 import Home from "~popup/pages/Home"
 import Unlock from "~popup/pages/Unlock"
+import ImportPrivateKey from "~popup/pages/ImportPrivateKey"
+import RecoverMnemonic from "~popup/pages/RecoverMnemonic"
 import { Network, type Account } from "~types/types"
 import "assets/vfx.js"
 import { mnemonicToAccount } from "~lib/utils"
@@ -14,8 +16,9 @@ import { mnemonicToAccount } from "~lib/utils"
 function IndexPopup() {
   const [network, setNetworkState] = useState<Network>(Network.Testnet)
   const [mnemonic, setMnemonic] = useState("")
+  const [password, setPassword] = useState("")
   const [account, setAccount] = useState<Account | null>(null)
-  const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home">("Booting")
+  const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home" | "RecoverMnemonic" | "ImportPrivateKey">("Booting")
 
   useEffect(() => {
     const init = async () => {
@@ -70,23 +73,23 @@ function IndexPopup() {
   const handleNetworkChange = async (newNetwork: Network) => {
     await setNetwork(newNetwork)
     setNetworkState(newNetwork)
-    
+
     setAccount(null)
     setScreen("Booting")
-    
+
     setTimeout(async () => {
       const hasWallet = await isWalletCreated(newNetwork)
-      
+
       if (!hasWallet) {
         setScreen("SetupWallet")
         return
       }
 
       const { unlocked } = await chrome.runtime.sendMessage({ type: "IS_UNLOCKED" })
-      
+
       if (unlocked) {
         const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
-        
+
         if (mnemonic) {
           const account = mnemonicToAccount(newNetwork, mnemonic, 0);
           setAccount(account)
@@ -129,6 +132,14 @@ function IndexPopup() {
             setMnemonic(createdMnemonic)
             setScreen("BackupMnemonic")
           }}
+          onRecoverMnemonic={(pwd) => {
+            setPassword(pwd)
+            setScreen("RecoverMnemonic")
+          }}
+          onImportPrivateKey={(pwd) => {
+            setPassword(pwd)
+            setScreen("ImportPrivateKey")
+          }}
         />
       )}
 
@@ -168,6 +179,30 @@ function IndexPopup() {
             setScreen("Unlock")
           }}
           onEjectWallet={handleEjectWallet}
+        />
+      )}
+
+      {screen === "RecoverMnemonic" && (
+        <RecoverMnemonic
+          network={network}
+          password={password}
+          onSuccess={(account) => {
+            setAccount(account)
+            setScreen("Home")
+          }}
+          onBack={() => setScreen("SetupWallet")}
+        />
+      )}
+
+      {screen === "ImportPrivateKey" && (
+        <ImportPrivateKey
+          network={network}
+          password={password}
+          onSuccess={(account) => {
+            setAccount(account)
+            setScreen("Home")
+          }}
+          onBack={() => setScreen("SetupWallet")}
         />
       )}
     </div>
