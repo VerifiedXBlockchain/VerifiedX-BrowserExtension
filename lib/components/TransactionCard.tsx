@@ -26,7 +26,7 @@ export default function TransactionCard({ tx, address, network }: Props) {
 
     const amount = `${amountPrefix}${tx.total_amount.toFixed(2)} VFX`
     const timestamp = new Date(tx.date_crafted).toLocaleString()
-    const explorerUrl = `https://spyglass${network == Network.Testnet && '-testnet'}.verifiedx.io/transaction/${tx.hash}` // Update with your explorer
+    const explorerUrl = `https://spyglass${network == Network.Testnet? '-testnet':''}.verifiedx.io/transaction/${tx.hash}` // Update with your explorer
 
     return (
         <div className={`bg-gray-900 border rounded-xl p-4 shadow-sm space-y-3 ${isPending ? 'border-yellow-500/50 bg-gray-900/50' : 'border-gray-800'}`}>
