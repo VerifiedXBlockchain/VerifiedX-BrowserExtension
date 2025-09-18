@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react"
 import { copyToClipboard } from "~lib/utils" // you'll make this helper
-import type { Account, Keypair, Network, VfxAddress } from "~types/types"
+import type { Account, Keypair, VfxAddress, IBtcKeypair, IAccountInfo } from "~types/types"
+import { Network, Currency } from "~types/types"
 import cube from 'data-base64:~assets/vfx-cube.png'
 import wordmark from 'data-base64:~assets/wordmark.png'
 import SendForm from "~lib/components/SendForm"
@@ -11,34 +12,60 @@ import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
-import { addPendingTransaction } from "~lib/secureStorage"
+import { addPendingTransaction, decryptBtcKeypair } from "~lib/secureStorage"
 import NetworkToggle from "~lib/components/NetworkToggle"
+import CurrencyToggle from "~lib/components/CurrencyToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
 import PasswordPrompt from "~lib/components/PasswordPrompt"
 import EjectWalletConfirm from "~lib/components/EjectWalletConfirm"
 
 interface HomeProps {
     network: Network
+    currency: Currency
     account: Account
     onNetworkChange: (network: Network) => void
+    onCurrencyChange: (currency: Currency) => void
     onLock: () => void
     onEjectWallet: () => void
 }
 
-export default function Home({ network, account, onNetworkChange, onLock, onEjectWallet }: HomeProps) {
+export default function Home({ network, currency, account, onNetworkChange, onCurrencyChange, onLock, onEjectWallet }: HomeProps) {
     const [addressDetails, setAddressDetails] = useState<VfxAddress | null>(null)
+    const [btcKeypair, setBtcKeypair] = useState<IBtcKeypair | null>(null)
+    const [btcAccountInfo, setBtcAccountInfo] = useState<IAccountInfo | null>(null)
     const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions" | "ExportKey" | "EjectWallet">("Main")
     const { message, showToast } = useToast()
 
-    const fetchDetails = async () => {
-
-
+    const fetchVfxDetails = async () => {
         try {
             const client = new window.vfx.VfxClient(network);
             const addressDetails = await client.getAddressDetails(account.address)
             setAddressDetails(addressDetails)
         } catch (err) {
-            console.error("Failed to fetch balance:", err)
+            console.error("Failed to fetch VFX balance:", err)
+        }
+    }
+
+    const fetchBtcDetails = async () => {
+        try {
+            // Get the current mnemonic (password) from background
+            const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
+            if (!mnemonic) {
+                console.error("Wallet locked - cannot fetch BTC details")
+                return
+            }
+
+            // Decrypt BTC keypair
+            const keypair = await decryptBtcKeypair(mnemonic, network)
+            setBtcKeypair(keypair)
+
+            // Fetch BTC account info using the keypair
+            const btcClient = new window.btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
+            const accountInfo = await btcClient.getAddressInfo(keypair.address || keypair.addresses.bech32 || '')
+            setBtcAccountInfo(accountInfo)
+
+        } catch (err) {
+            console.error("Failed to fetch BTC details:", err)
         }
     }
 
@@ -126,16 +153,26 @@ export default function Home({ network, account, onNetworkChange, onLock, onEjec
     }
 
     useEffect(() => {
-        if (!account?.address) return
-        fetchDetails()
-        const interval = setInterval(() => {
-            fetchDetails()
-        }, 10_000)
+        const fetchData = async () => {
+            if (currency === Currency.VFX) {
+                if (!account?.address) return
+                await fetchVfxDetails()
+            } else if (currency === Currency.BTC) {
+                await fetchBtcDetails()
+            }
+        }
+
+        fetchData()
+        const interval = setInterval(fetchData, 10_000)
 
         return () => clearInterval(interval)
-    }, [account?.address])
+    }, [account?.address, currency, network])
 
-    if (!addressDetails) {
+    // Show loading if we don't have data for the current currency
+    if (currency === Currency.VFX && !addressDetails) {
+        return <div></div>
+    }
+    if (currency === Currency.BTC && !btcKeypair) {
         return <div></div>
     }
 
@@ -157,8 +194,10 @@ export default function Home({ network, account, onNetworkChange, onLock, onEjec
                 </div>
             </div>
 
-            <div className="py-2"></div>
-
+            {/* Currency Toggle */}
+            <div className="px-3 py-2 flex justify-center">
+                <CurrencyToggle currency={currency} onCurrencyChange={onCurrencyChange} />
+            </div>
 
             {section == "Main" && (
 
@@ -166,26 +205,39 @@ export default function Home({ network, account, onNetworkChange, onLock, onEjec
                     <div className="px-3">
 
                         <div className="flex flex-row justify-center items-center space-x-1">
-                            <div className="text-2xl font-light">{addressDetails.balance}</div>
-                            <div className="text-2xl text-gray-400">VFX</div>
+                            {currency === Currency.VFX ? (
+                                <>
+                                    <div className="text-2xl font-light">{addressDetails?.balance || 0}</div>
+                                    <div className="text-2xl text-gray-400">VFX</div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="text-2xl font-light">{btcAccountInfo?.balance ? (btcAccountInfo.balance / 100000000).toFixed(8) : '0.00000000'}</div>
+                                    <div className="text-2xl text-orange-400">BTC</div>
+                                </>
+                            )}
                         </div>
                         <div className="py-1"></div>
-                        {addressDetails &&
-                            <CopyAddress address={addressDetails.address} network={network} adnr={addressDetails.adnr} />}
+                        {currency === Currency.VFX ? (
+                            addressDetails && <CopyAddress address={addressDetails.address} network={network} adnr={addressDetails.adnr} />
+                        ) : (
+                            btcKeypair && <CopyAddress address={btcKeypair.address || btcKeypair.addresses?.bech32 || ''} network={network} />
+                        )}
                         <div className="py-2"></div>
 
 
                         <div className="grid grid-cols-3 gap-3">
-                            <button className="bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-semibold" onClick={() => setSection("Send")}>
+                            <button className={`${currency === Currency.VFX ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-600 hover:bg-orange-500'} p-3 rounded-lg font-semibold`} onClick={() => setSection("Send")}>
                                 Send
                             </button>
-                            <button className="bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-semibold" onClick={() => setSection("Receive")}>
+                            <button className={`${currency === Currency.VFX ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-600 hover:bg-orange-500'} p-3 rounded-lg font-semibold`} onClick={() => setSection("Receive")}>
                                 Receive
                             </button>
-                            <button className="bg-blue-600 hover:bg-blue-500 p-3 rounded-lg font-semibold" onClick={() => setSection("Transactions")}>
+                            <button className={`${currency === Currency.VFX ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-600 hover:bg-orange-500'} p-3 rounded-lg font-semibold`} onClick={() => setSection("Transactions")}>
                                 Txs
                             </button>
                         </div>
+                        <div className="pt-3"></div>
 
                         {/* Spacer */}
                         <div className="flex-1" />

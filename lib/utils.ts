@@ -1,4 +1,4 @@
-import type { Account } from "~types/types";
+import type { Account, IBtcKeypair } from "~types/types";
 import { Network } from "~types/types";
 
 
@@ -99,4 +99,17 @@ export const normalizeMnemonic = (input: string): string[] => {
 export const createAccountFromSecret = (network: Network, privateKey: string): Account => {
     // Now we always store private keys, so this is simplified
     return privateKeyToAccount(network, privateKey);
+}
+
+// BTC utility function using existing BTC client
+export const createBtcKeypairFromVfx = (network: Network, vfxPrivateKey: string): IBtcKeypair => {
+    // Convert VFX private key to email/password format (matches web wallet)
+    const email = `${vfxPrivateKey.substring(0, 8)}@${vfxPrivateKey.substring(vfxPrivateKey.length - 8)}.com`
+    const password = `${vfxPrivateKey.substring(0, 12)}${vfxPrivateKey.substring(vfxPrivateKey.length - 12)}`
+
+    // Use BtcClient convenience method
+    const btcNetwork = network === Network.Mainnet ? 'mainnet' : 'testnet'
+    console.log("VFX Network:", network, "-> BTC Network:", btcNetwork)
+    const btcClient = new window.btc.BtcClient(btcNetwork)
+    return btcClient.generateEmailKeypair(email, password, 0)
 }

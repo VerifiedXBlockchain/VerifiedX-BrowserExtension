@@ -1,5 +1,5 @@
 import { Storage } from "@plasmohq/storage"
-import { Network } from "~types/types"
+import { Network, Currency, type IBtcKeypair } from "~types/types"
 
 
 const storage = new Storage()
@@ -42,7 +42,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
 }
 
 
-export async function encryptPrivateKey(privateKey: string, password: string, network: Network) {
+export async function encryptPrivateKey(privateKey: string, password: string, network: Network, currency: Currency = Currency.VFX) {
     const salt = crypto.getRandomValues(new Uint8Array(16))
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const key = await deriveKey(password, salt)
@@ -59,11 +59,11 @@ export async function encryptPrivateKey(privateKey: string, password: string, ne
         cipherText: Array.from(new Uint8Array(cipherText)),
     }
 
-    await storage.set(`${network}-wallet`, encryptedData)
+    await storage.set(`${currency}-${network}-wallet`, encryptedData)
 }
 
-export async function decryptPrivateKey(password: string, network: Network): Promise<string> {
-    const result = await storage.get(`${network}-wallet`)
+export async function decryptPrivateKey(password: string, network: Network, currency: Currency = Currency.VFX): Promise<string> {
+    const result = await storage.get(`${currency}-${network}-wallet`)
 
     if (!result) {
         throw new Error("No wallet found")
@@ -81,20 +81,66 @@ export async function decryptPrivateKey(password: string, network: Network): Pro
     return decode(decrypted)
 }
 
-export async function isWalletCreated(network: Network): Promise<boolean> {
-    const result = await storage.get(`${network}-wallet`)
+export async function isWalletCreated(network: Network, currency: Currency = Currency.VFX): Promise<boolean> {
+    const result = await storage.get(`${currency}-${network}-wallet`)
     return !!result
 }
 
 // Check if any wallet exists across both networks (for global password system)
 export async function hasAnyWallet(): Promise<boolean> {
-    const mainnet = await storage.get(`${Network.Mainnet}-wallet`)
-    const testnet = await storage.get(`${Network.Testnet}-wallet`)
-    return !!(mainnet || testnet)
+    const vfxMainnet = await storage.get(`${Currency.VFX}-${Network.Mainnet}-wallet`)
+    const vfxTestnet = await storage.get(`${Currency.VFX}-${Network.Testnet}-wallet`)
+    const btcMainnet = await storage.get(`${Currency.BTC}-${Network.Mainnet}-wallet`)
+    const btcTestnet = await storage.get(`${Currency.BTC}-${Network.Testnet}-wallet`)
+    return !!(vfxMainnet || vfxTestnet || btcMainnet || btcTestnet)
 }
 
-export async function clearWallet(network: Network) {
-    await storage.remove(`${network}-wallet`)
+export async function clearWallet(network: Network, currency: Currency = Currency.VFX) {
+    await storage.remove(`${currency}-${network}-wallet`)
+}
+
+// BTC-specific functions
+export async function encryptBtcKeypair(keypair: IBtcKeypair, password: string, network: Network) {
+    // Store the WIF as the main private key for BTC
+    await encryptPrivateKey(keypair.wif, password, network, Currency.BTC)
+
+    // Also store the full keypair data for convenience
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const key = await deriveKey(password, salt)
+
+    const cipherText = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        key,
+        encode(JSON.stringify(keypair))
+    )
+
+    const encryptedData = {
+        salt: Array.from(salt),
+        iv: Array.from(iv),
+        cipherText: Array.from(new Uint8Array(cipherText)),
+    }
+
+    await storage.set(`${Currency.BTC}-${network}-keypair`, encryptedData)
+}
+
+export async function decryptBtcKeypair(password: string, network: Network): Promise<IBtcKeypair> {
+    const result = await storage.get(`${Currency.BTC}-${network}-keypair`)
+
+    if (!result) {
+        throw new Error("No BTC wallet found")
+    }
+
+    const { salt, iv, cipherText } = result as any
+    const key = await deriveKey(password, new Uint8Array(salt))
+
+    const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: new Uint8Array(iv) },
+        key,
+        new Uint8Array(cipherText)
+    )
+
+    return JSON.parse(decode(decrypted)) as IBtcKeypair
 }
 
 
