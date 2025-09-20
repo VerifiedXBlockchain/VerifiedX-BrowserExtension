@@ -10,6 +10,7 @@ import SendForm from "~lib/components/SendForm"
 import TransactionList from "~lib/components/TransactionList"
 import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
+import { VfxClient } from 'vfx-web-sdk'
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
 import { addPendingTransaction, decryptBtcKeypair } from "~lib/secureStorage"
@@ -38,7 +39,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
 
     const fetchVfxDetails = async () => {
         try {
-            const client = new window.vfx.VfxClient(network);
+            const client = new VfxClient(network);
             const addressDetails = await client.getAddressDetails(account.address)
             setAddressDetails(addressDetails)
         } catch (err) {
@@ -48,20 +49,24 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
 
     const fetchBtcDetails = async () => {
         try {
+            console.log("fetchBtcDetails: Starting...")
             // Get the current mnemonic (password) from background
             const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
             if (!mnemonic) {
                 console.error("Wallet locked - cannot fetch BTC details")
                 return
             }
+            console.log("fetchBtcDetails: Got mnemonic")
 
             // Decrypt BTC keypair
             const keypair = await decryptBtcKeypair(mnemonic, network)
+            console.log("fetchBtcDetails: Decrypted BTC keypair:", keypair)
             setBtcKeypair(keypair)
 
             // Fetch BTC account info using the keypair
             const btcClient = new window.btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
             const accountInfo = await btcClient.getAddressInfo(keypair.address || keypair.addresses.bech32 || '')
+            console.log("fetchBtcDetails: Got account info:", accountInfo)
             setBtcAccountInfo(accountInfo)
 
         } catch (err) {
@@ -71,7 +76,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
 
     const handleSendCoin = async (toAddress: string, amount: number): Promise<string | null> => {
         try {
-            const client = new window.vfx.VfxClient(network);
+            const client = new VfxClient(network);
             const kp: Keypair = {
                 address: account.address,
                 privateKey: account.private,
@@ -112,9 +117,43 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
         }
     }
 
+    const handleSendBtc = async (toAddress: string, amount: number): Promise<string | null> => {
+        try {
+            if (!btcKeypair) {
+                console.error("No BTC keypair available")
+                return null;
+            }
+
+            // Convert BTC amount to satoshis
+            const amountInSatoshis = Math.round(amount * 100000000);
+
+            console.log("=== BTC SEND TRANSACTION ===")
+            console.log("From Address:", btcKeypair.address || btcKeypair.addresses?.bech32)
+            console.log("To Address:", toAddress)
+            console.log("Amount (BTC):", amount)
+            console.log("Amount (satoshis):", amountInSatoshis)
+            console.log("Network:", network === Network.Mainnet ? 'mainnet' : 'testnet')
+            console.log("WIF:", btcKeypair.wif)
+
+            const btcClient = new window.btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
+            const hash = await btcClient.sendBtc(btcKeypair.wif, toAddress, amountInSatoshis);
+
+            console.log("🎉 BTC TRANSACTION SENT! 🎉")
+            console.log("Transaction Hash:", hash)
+            console.log(`View on ${network === Network.Mainnet ? 'blockchain.info' : 'blockstream.info/testnet'}: ${hash}`)
+            console.log("==============================")
+
+            return hash;
+
+        } catch (err) {
+            console.error("❌ FAILED TO SEND BTC:", err)
+            return null;
+        }
+    }
+
     const handleCreateDomain = async (domain: string): Promise<void> => {
         try {
-            const client = new window.vfx.VfxClient(network);
+            const client = new VfxClient(network);
             const kp: Keypair = {
                 address: account.address,
                 privateKey: account.private,
@@ -168,12 +207,16 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
         return () => clearInterval(interval)
     }, [account?.address, currency, network])
 
-    // Show loading if we don't have data for the current currency
+    // Show loading only for VFX if we don't have essential data
+    // For BTC, we allow the UI to show even while loading since Send form can handle loading states
     if (currency === Currency.VFX && !addressDetails) {
+        console.log("Loading VFX data...")
         return <div></div>
     }
+
+    // Log BTC loading state but don't block UI
     if (currency === Currency.BTC && !btcKeypair) {
-        return <div></div>
+        console.log("Loading BTC data... btcKeypair:", btcKeypair)
     }
 
 
@@ -258,9 +301,9 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                     </div>
 
                     <div className="flex-1 text-center text-lg font-light">
-                        {section == "Send" && "Send VFX"}
+                        {section == "Send" && `Send ${currency === Currency.VFX ? 'VFX' : 'BTC'}`}
                         {section == "Transactions" && "Transactions"}
-                        {section == "Receive" && "Receive VFX"}
+                        {section == "Receive" && `Receive ${currency === Currency.VFX ? 'VFX' : 'BTC'}`}
                         {section == "ExportKey" && "Export Private Key"}
                         {section == "EjectWallet" && "Eject Wallet"}
                     </div>
@@ -272,19 +315,38 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
 
             {section == "Send" && (
                 <div className="p-3">
-                    <SendForm fromAddress={addressDetails} network={network} onSubmit={async (toAddress, amount) => {
-                        const hash = await handleSendCoin(toAddress, amount);
-                        if (hash != null) {
-                            showToast("Transaction sent!")
-                            setSection("Main");
-                        }
-                    }} />
+                    <SendForm
+                        currency={currency}
+                        network={network}
+                        vfxAddress={addressDetails}
+                        btcKeypair={btcKeypair}
+                        btcAccountInfo={btcAccountInfo}
+                        onSubmit={async (toAddress, amount) => {
+                            let hash: string | null;
+                            if (currency === Currency.VFX) {
+                                hash = await handleSendCoin(toAddress, amount);
+                            } else {
+                                hash = await handleSendBtc(toAddress, amount);
+                            }
+
+                            if (hash != null) {
+                                showToast("Transaction sent!")
+                                setSection("Main");
+                            }
+                        }}
+                    />
                 </div>
             )}
 
             {section == "Receive" && (
                 <div className="p-3">
-                    <Receive address={addressDetails} network={network} handleCreateVfxDomain={handleCreateDomain} />
+                    <Receive
+                        currency={currency}
+                        address={addressDetails}
+                        btcKeypair={btcKeypair}
+                        network={network}
+                        handleCreateVfxDomain={handleCreateDomain}
+                    />
                 </div>
             )}
 

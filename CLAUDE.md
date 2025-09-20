@@ -134,3 +134,48 @@ This enables separate encrypted storage for each currency-network combination.
 - **Home Screen**: Add segmented control [VFX] [BTC] with currency-specific theming
 - **Initial BTC Setup**: Lazy-loaded when user first switches to BTC tab
 - **Import Options**: WIF, Private Key, or Derive from VFX key
+
+## Implementation Status
+
+### ✅ Completed Features
+
+**BTC Key Generation & Storage:**
+- VFX-to-BTC key derivation using email/password algorithm
+- Cross-platform compatibility with web wallet confirmed
+- Currency-specific encrypted storage: `${currency}-${network}-wallet`
+- BTC keypair storage with both WIF and full keypair data
+
+**UI & Display:**
+- Currency segmented control (centered, auto-sizing)
+- Dynamic balance display (VFX in gray, BTC in orange, satoshi conversion)
+- Dynamic address display (VFX or BTC address based on currency)
+- Currency-specific button theming (blue for VFX, orange for BTC)
+- Loading states for both currencies
+
+**Data Management:**
+- Currency-aware data fetching (VFX via VfxClient, BTC via BtcClient)
+- Background mnemonic integration for BTC wallet encryption
+- Network-aware BTC client initialization (mainnet/testnet)
+- Automatic currency state persistence
+
+### 🔧 Key Functions Added
+
+```typescript
+// Storage functions
+encryptBtcKeypair(keypair: IBtcKeypair, password: string, network: Network)
+decryptBtcKeypair(password: string, network: Network): Promise<IBtcKeypair>
+isWalletCreated(network: Network, currency: Currency)
+
+// Utility functions
+createBtcKeypairFromVfx(network: Network, vfxPrivateKey: string): IBtcKeypair
+```
+
+### 📁 Storage Architecture
+```
+vfx-mainnet-wallet: VFX mainnet private key
+vfx-testnet-wallet: VFX testnet private key
+btc-mainnet-wallet: BTC mainnet WIF
+btc-testnet-wallet: BTC testnet WIF
+btc-mainnet-keypair: BTC mainnet full keypair
+btc-testnet-keypair: BTC testnet full keypair
+```

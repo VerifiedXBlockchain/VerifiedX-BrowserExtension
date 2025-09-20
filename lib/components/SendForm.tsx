@@ -1,19 +1,54 @@
 import { useState } from "react"
 import { validateVfxAddress } from "~lib/utils";
+import { VfxClient } from 'vfx-web-sdk';
 
-import type { VfxAddress } from "~types/types"
-import { Network } from "~types/types";
+import type { VfxAddress, IBtcKeypair, IAccountInfo } from "~types/types"
+import { Network, Currency } from "~types/types";
 
 
 interface SendFormProps {
-    fromAddress: VfxAddress;
+    currency: Currency;
     network: Network;
+    vfxAddress?: VfxAddress;
+    btcKeypair?: IBtcKeypair;
+    btcAccountInfo?: IAccountInfo;
     onSubmit: (toAddress: string, amount: number) => Promise<void>;
 }
 
-export default function SendForm({ fromAddress, onSubmit, network }: SendFormProps) {
+export default function SendForm({ currency, network, vfxAddress, btcKeypair, btcAccountInfo, onSubmit }: SendFormProps) {
     const [toAddress, setToAddress] = useState('');
     const [amount, setAmount] = useState('');
+
+    // Helper functions to get currency-specific data
+    const getBalance = () => {
+        if (currency === Currency.VFX) {
+            return vfxAddress?.balance || 0;
+        } else {
+            return btcAccountInfo?.balance ? btcAccountInfo.balance / 100000000 : 0; // Convert satoshis to BTC
+        }
+    };
+
+    const getFromAddress = () => {
+        if (currency === Currency.VFX) {
+            return vfxAddress?.address || '';
+        } else {
+            return btcKeypair?.address || btcKeypair?.addresses?.bech32 || '';
+        }
+    };
+
+    const getCurrencySymbol = () => {
+        return currency === Currency.VFX ? 'VFX' : 'BTC';
+    };
+
+    const validateAddress = (address: string) => {
+        if (currency === Currency.VFX) {
+            return validateVfxAddress(address, network);
+        } else {
+            // Basic BTC address validation - starts with bc1, tb1, 1, 3, etc.
+            const btcPattern = /^(bc1|tb1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/;
+            return btcPattern.test(address);
+        }
+    };
 
     const [toAddressError, setToAddressError] = useState('')
     const [amountError, setAmountError] = useState('')
@@ -32,28 +67,49 @@ export default function SendForm({ fromAddress, onSubmit, network }: SendFormPro
 
         let resolvedAddress = toAddress;
 
-        // Check if it's a domain
-        if (toAddress.endsWith('.vfx')) {
+        // Domain lookup (currency-specific)
+        if (currency === Currency.VFX && toAddress.endsWith('.vfx')) {
             try {
                 setLoading(true);
-                const client = new window.vfx.VfxClient(network);
+                const client = new VfxClient(network);
                 const domainAddress = await client.lookupDomain(toAddress);
 
                 if (!domainAddress) {
-                    setToAddressError("Domain not found");
+                    setToAddressError("VFX domain not found");
                     hasError = true;
                 } else {
                     resolvedAddress = domainAddress;
+                    setToAddress(domainAddress); // Update UI to show resolved address
                 }
             } catch (err) {
                 console.log(err)
-                setToAddressError("Failed to lookup domain");
+                setToAddressError("Failed to lookup VFX domain");
                 hasError = true;
             } finally {
                 setLoading(false);
             }
-        } else if (!validateVfxAddress(toAddress, network)) {
-            setToAddressError("Invalid Address");
+        } else if (currency === Currency.BTC && toAddress.endsWith('.btc')) {
+            try {
+                setLoading(true);
+                const client = new VfxClient(network);
+                const domainAddress = await client.lookupBtcDomain(toAddress);
+
+                if (!domainAddress) {
+                    setToAddressError("BTC domain not found");
+                    hasError = true;
+                } else {
+                    resolvedAddress = domainAddress;
+                    setToAddress(domainAddress); // Update UI to show resolved address
+                }
+            } catch (err) {
+                console.log(err)
+                setToAddressError("Failed to lookup BTC domain");
+                hasError = true;
+            } finally {
+                setLoading(false);
+            }
+        } else if (!validateAddress(toAddress)) {
+            setToAddressError(`Invalid ${getCurrencySymbol()} Address`);
             hasError = true;
         }
 
@@ -62,10 +118,9 @@ export default function SendForm({ fromAddress, onSubmit, network }: SendFormPro
             setAmountError("Invalid Amount");
             hasError = true;
 
-        } else if (parsedAmount > fromAddress.balance) {
-            setAmountError("Insufficent Balance");
+        } else if (parsedAmount > getBalance()) {
+            setAmountError("Insufficient Balance");
             hasError = true;
-
         }
 
         if (hasError) return;
@@ -84,10 +139,12 @@ export default function SendForm({ fromAddress, onSubmit, network }: SendFormPro
                 <div className="flex justify-between  mb-1">
 
                     <label className="block text-xs font-medium text-gray-400">From</label>
-                    <div className=" text-gray-400 text-xs">{fromAddress.balance} VFX</div>
+                    <div className="text-gray-400 text-xs">
+                        {currency === Currency.VFX ? getBalance() : getBalance().toFixed(8)} {getCurrencySymbol()}
+                    </div>
                 </div>
                 <div className="flex items-center justify-between bg-gray-800 px-3 py-2 rounded-lg text-sm text-gray-300">
-                    <span className="truncate">{fromAddress.address}</span>
+                    <span className="truncate">{getFromAddress()}</span>
                 </div>
 
 
@@ -100,7 +157,7 @@ export default function SendForm({ fromAddress, onSubmit, network }: SendFormPro
                     type="text"
                     value={toAddress}
                     onChange={(e) => setToAddress(e.target.value)}
-                    placeholder="Enter address or domain.vfx"
+                    placeholder={currency === Currency.VFX ? "Enter address or domain.vfx" : "Enter address or domain.btc"}
                     className="w-full bg-gray-800 text-white px-4 py-2 rounded-lg focus:outline-none"
                 />
                 {toAddressError && <div className="text-xs  mt-1 text-red-500">{toAddressError}</div>}
@@ -117,7 +174,7 @@ export default function SendForm({ fromAddress, onSubmit, network }: SendFormPro
                         placeholder="0.00"
                         className="w-full bg-transparent text-white px-4 py-2 focus:outline-none"
                     />
-                    <span className="px-4 text-gray-400">VFX</span>
+                    <span className="px-4 text-gray-400">{getCurrencySymbol()}</span>
                 </div>
                 {amountError && <div className="text-xs mt-1 text-red-500">{amountError}</div>}
 
@@ -128,7 +185,9 @@ export default function SendForm({ fromAddress, onSubmit, network }: SendFormPro
                 disabled={loading}
                 className={`w-full font-semibold py-2 rounded-lg transition flex items-center justify-center ${loading
                         ? 'bg-gray-600 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-500'
+                        : currency === Currency.VFX
+                            ? 'bg-blue-600 hover:bg-blue-500'
+                            : 'bg-orange-600 hover:bg-orange-500'
                     } text-white`}
             >
                 {loading ? (

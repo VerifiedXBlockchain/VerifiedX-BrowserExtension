@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react"
 import type { Network, Transaction, VfxAddress } from "~types/types"
 import TransactionCard from "./TransactionCard"
 import { getPendingTransactions, removePendingTransaction } from "~lib/secureStorage"
+import { VfxClient } from 'vfx-web-sdk'
 
 interface Props {
     address: VfxAddress
@@ -9,7 +10,7 @@ interface Props {
 }
 
 export default function TransactionList({ address, network }: Props) {
-    const client = new window.vfx.VfxClient(network)
+    const client = new VfxClient(network)
 
     const [transactions, setTransactions] = useState<Transaction[]>([])
     const [pendingTransactions, setPendingTransactions] = useState<any[]>([])

@@ -2,8 +2,10 @@ import type { Account, IBtcKeypair } from "~types/types";
 import { Network } from "~types/types";
 
 
+import { VfxClient } from 'vfx-web-sdk'
+
 export const mnemonicToAccount = (network: Network, mnemonic: string, index: number = 0): Account => {
-    const client = new window.vfx.VfxClient(network)
+    const client = new VfxClient(network)
 
     const privateKey = client.privateKeyFromMneumonic(mnemonic, 0)
     const publicKey = client.publicFromPrivate(privateKey)
@@ -48,8 +50,8 @@ export const validateDomain = (input: string): boolean => {
 }
 
 export const privateKeyToAccount = (network: Network, privateKey: string): Account => {
-    const client = new window.vfx.VfxClient(network)
-    
+    const client = new VfxClient(network)
+
     const publicKey = client.publicFromPrivate(privateKey)
     const address = client.addressFromPrivate(privateKey)
 
@@ -64,10 +66,10 @@ export const privateKeyToAccount = (network: Network, privateKey: string): Accou
 
 export const validatePrivateKey = (privateKey: string): boolean => {
     if (!privateKey) return false;
-    
+
     // Remove any whitespace
     const cleanKey = privateKey.trim();
-    
+
     // Check if it's a valid hex string of expected length
     // VFX private keys are typically 64 hex characters (32 bytes)
     const hexPattern = /^[a-fA-F0-9]{64}$/;
@@ -79,7 +81,7 @@ export const validateMnemonic = (words: string[]): boolean => {
     if (words.length !== 12 && words.length !== 24) {
         return false;
     }
-    
+
     // Check that all words are non-empty and contain only letters
     return words.every(word => {
         const trimmed = word.trim().toLowerCase();

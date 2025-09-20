@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { encryptPrivateKey, decryptPrivateKey, hasAnyWallet } from "~lib/secureStorage"
 import { Network, type Network as NetworkType } from "~types/types"
+import { VfxClient } from 'vfx-web-sdk'
 
 interface Props {
     network: NetworkType
@@ -47,7 +48,7 @@ export default function SetupWallet({ network, onCreate, onRecoverMnemonic, onIm
                 }
 
                 // Password is correct, generate new mnemonic and derive private key
-                const client = new window.vfx.VfxClient(network)
+                const client = new VfxClient(network)
                 const newMnemonic = client.generateMnemonic(24)
                 const newPrivateKey = client.privateKeyFromMneumonic(newMnemonic, 0)
 
@@ -82,7 +83,7 @@ export default function SetupWallet({ network, onCreate, onRecoverMnemonic, onIm
         setLoading(true)
 
         try {
-            const client = new window.vfx.VfxClient(network)
+            const client = new VfxClient(network)
             const mnemonic = client.generateMnemonic(24)
             const privateKey = client.privateKeyFromMneumonic(mnemonic, 0)
 

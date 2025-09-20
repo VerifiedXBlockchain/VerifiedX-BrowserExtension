@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "alias": {
+      "crypto": false,
+      "stream": "stream-browserify",
+      "buffer": "buffer"
+    },
+    "polyfill": {
+      "globals": {
+        "Buffer": true,
+        "process": true
+      }
+    }
+  }
+}

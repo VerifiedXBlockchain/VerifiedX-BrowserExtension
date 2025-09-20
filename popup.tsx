@@ -12,7 +12,7 @@ import ImportPrivateKey from "~popup/pages/ImportPrivateKey"
 import RecoverMnemonic from "~popup/pages/RecoverMnemonic"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import { Network, Currency, type Account } from "~types/types"
-import "assets/vfx.js"
+import { VfxClient } from 'vfx-web-sdk'
 import "assets/btc.js"
 import { createAccountFromSecret, createBtcKeypairFromVfx } from "~lib/utils"
 
@@ -190,7 +190,7 @@ function IndexPopup() {
           mnemonic={mnemonic}
           onConfirm={() => {
             // Convert mnemonic to private key first
-            const client = new window.vfx.VfxClient(network)
+            const client = new VfxClient(network)
             const privateKey = client.privateKeyFromMneumonic(mnemonic, 0)
             const account = createAccountFromSecret(network, privateKey);
 

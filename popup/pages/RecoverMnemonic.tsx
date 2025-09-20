@@ -2,6 +2,7 @@ import { useState } from "react"
 import { encryptPrivateKey } from "~lib/secureStorage"
 import { validateMnemonic, normalizeMnemonic, mnemonicToAccount } from "~lib/utils"
 import type { Network, Account } from "~types/types"
+import { VfxClient } from 'vfx-web-sdk'
 
 interface RecoverMnemonicProps {
     network: Network
@@ -54,7 +55,7 @@ export default function RecoverMnemonic({ network, password, onSuccess, onBack }
             const account = mnemonicToAccount(network, mnemonic, 0)
 
             // Derive and store the private key (not the mnemonic)
-            const client = new window.vfx.VfxClient(network)
+            const client = new VfxClient(network)
             const privateKey = client.privateKeyFromMneumonic(mnemonic, 0)
             await encryptPrivateKey(privateKey, password, network)
 

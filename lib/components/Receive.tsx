@@ -1,18 +1,22 @@
-import type { Network, VfxAddress } from "~types/types";
+import type { Network, VfxAddress, IBtcKeypair } from "~types/types";
+import { Currency } from "~types/types";
 import CopyAddress from "./CopyAddress";
+import { VfxClient } from 'vfx-web-sdk';
 import { useState, useEffect } from "react"
 import { validateDomain } from "~lib/utils";
 import { getPendingTransactions } from "~lib/secureStorage";
 
 
 interface ReceiveProps {
-    address: VfxAddress;
+    currency: Currency;
+    address?: VfxAddress;
+    btcKeypair?: IBtcKeypair;
     network: Network;
     handleCreateVfxDomain: (domain: string) => Promise<void>;
 }
 
 
-export default function Receive({ address, network, handleCreateVfxDomain }: ReceiveProps) {
+export default function Receive({ currency, address, btcKeypair, network, handleCreateVfxDomain }: ReceiveProps) {
 
     const [creatingDomain, setCreatingDomain] = useState<boolean>(false);
     const [newDomain, setNewDomain] = useState<string>("");
@@ -20,20 +24,38 @@ export default function Receive({ address, network, handleCreateVfxDomain }: Rec
     const [loading, setLoading] = useState<boolean>(false);
     const [hasPendingDomain, setHasPendingDomain] = useState<boolean>(false);
 
-    // Check for pending domain transactions
+    // Helper functions to get currency-specific data
+    const getReceiveAddress = () => {
+        if (currency === Currency.VFX) {
+            return address?.address || '';
+        } else {
+            return btcKeypair?.address || btcKeypair?.addresses?.bech32 || '';
+        }
+    };
+
+    const getAdnr = () => {
+        return currency === Currency.VFX ? address?.adnr : null;
+    };
+
+
+    // Check for pending domain transactions (VFX only)
     useEffect(() => {
         const checkPendingDomains = async () => {
-            const pending = await getPendingTransactions(network, address.address);
-            const hasDomainTx = pending.some(tx => tx.type_label === "Domain");
-            setHasPendingDomain(hasDomainTx);
+            if (currency === Currency.VFX && address?.address) {
+                const pending = await getPendingTransactions(network, address.address);
+                const hasDomainTx = pending.some(tx => tx.type_label === "Domain");
+                setHasPendingDomain(hasDomainTx);
+            } else {
+                setHasPendingDomain(false);
+            }
         };
-        
+
         checkPendingDomains();
-        
+
         // Poll every 5 seconds to update pending status
         const interval = setInterval(checkPendingDomains, 5000);
         return () => clearInterval(interval);
-    }, [network, address.address]);
+    }, [currency, network, address?.address]);
 
     const handleSubmit = async (e: React.FormEvent) => {
 
@@ -42,26 +64,26 @@ export default function Receive({ address, network, handleCreateVfxDomain }: Rec
 
         let hasError = false;
 
-        const domain = newDomain.trim().toLowerCase().replaceAll(".vfx", "");
+        const domainExtension = currency === Currency.VFX ? ".vfx" : ".btc";
+        const domain = newDomain.trim().toLowerCase().replaceAll(domainExtension, "");
 
         if (!domain) {
             setNewDomainError("Domain Name Required");
             hasError = true;
         }
 
-
         if (!validateDomain(domain)) {
             setNewDomainError("Invalid domain. Must include only numbers, letters, and/or hyphens");
             hasError = true;
         }
 
-        // Check if user has enough balance (5.0001 VFX for domain + fee)
-        if (address.balance < 5.0001) {
+        // Check if user has enough balance (VFX only for now)
+        if (currency === Currency.VFX && address && address.balance < 5.0001) {
             setNewDomainError("Insufficient balance. Requires 5 VFX for domain creation + fees");
             hasError = true;
         }
 
-        const client = new window.vfx.VfxClient(network)
+        const client = new VfxClient(network)
 
         const isAvailable = await client.domainAvailable(domain);
 
@@ -86,9 +108,9 @@ export default function Receive({ address, network, handleCreateVfxDomain }: Rec
     return (
         <div className="flex flex-col space-y-1">
             <p className="text-center">Copy and Paste your address:</p>
-            <CopyAddress address={address.address} network={network} adnr={address.adnr} />
+            <CopyAddress address={getReceiveAddress()} network={network} adnr={getAdnr()} />
 
-            {!address.adnr && (
+            {currency === Currency.VFX && !getAdnr() && (
                 <div className='pt-2'>
 
                     {!creatingDomain && (
@@ -97,9 +119,11 @@ export default function Receive({ address, network, handleCreateVfxDomain }: Rec
                             <button
                                 disabled={hasPendingDomain}
                                 className={`py-1 px-2 rounded-lg transition text-white ${
-                                    hasPendingDomain 
-                                        ? 'bg-gray-600 cursor-not-allowed' 
-                                        : 'bg-blue-600 hover:bg-blue-500'
+                                    hasPendingDomain
+                                        ? 'bg-gray-600 cursor-not-allowed'
+                                        : currency === Currency.VFX
+                                            ? 'bg-blue-600 hover:bg-blue-500'
+                                            : 'bg-orange-600 hover:bg-orange-500'
                                 }`}
                                 onClick={() => setCreatingDomain(true)}>
                                 {hasPendingDomain ? 'Domain Pending...' : 'Create Domain'}
@@ -119,7 +143,7 @@ export default function Receive({ address, network, handleCreateVfxDomain }: Rec
                                         autoFocus
                                         value={newDomain}
                                         onChange={(e) => setNewDomain(e.target.value)}
-                                        placeholder="mydomain.vfx"
+                                        placeholder={`mydomain${currency === Currency.VFX ? '.vfx' : '.btc'}`}
                                         className="w-full bg-gray-800 text-white px-4 py-2 rounded-lg focus:outline-none"
                                     />
                                     {newDomainError && <div className="text-xs  mt-1 text-red-500">{newDomainError}</div>}
@@ -129,9 +153,11 @@ export default function Receive({ address, network, handleCreateVfxDomain }: Rec
                                     type="submit"
                                     disabled={loading}
                                     className={`w-full font-semibold py-2 rounded-lg transition flex items-center justify-center ${
-                                        loading 
-                                            ? 'bg-gray-600 cursor-not-allowed' 
-                                            : 'bg-blue-600 hover:bg-blue-500'
+                                        loading
+                                            ? 'bg-gray-600 cursor-not-allowed'
+                                            : currency === Currency.VFX
+                                                ? 'bg-blue-600 hover:bg-blue-500'
+                                                : 'bg-orange-600 hover:bg-orange-500'
                                     } text-white`}
                                 >
                                     {loading ? (

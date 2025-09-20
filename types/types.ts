@@ -1,57 +1,23 @@
+// Import VFX types from the official npm package
+export type { Keypair, VfxAddress, Transaction, PaginatedResponse } from 'vfx-web-sdk'
+
+// Network enum - defined locally to avoid runtime issues, matches vfx-web-sdk values
 export enum Network {
     Mainnet = 'mainnet',
     Testnet = 'testnet',
 }
 
+// Currency enum is specific to our extension (VFX + BTC support)
 export enum Currency {
     VFX = 'vfx',
     BTC = 'btc',
 }
 
-export interface PaginatedResponse<T> {
-    count: number;
-    page: number;
-    num_pages: number;
-    results: T[];
-}
-
-export interface Keypair {
-    privateKey: string
-    publicKey: string
-    address: string
-}
-
+// Account interface is our custom wrapper around VFX keypairs
 export interface Account {
     private: string;
     public: string;
     address: string;
-}
-
-export interface VfxAddress {
-    address: string;
-    balance: number;
-    balanceTotal: number;
-    balanceLocked: number;
-    adnr: string | null;
-    activated: boolean;
-}
-
-export interface Transaction {
-    hash: string
-    height: number
-    type: number
-    type_label: string
-    to_address: string
-    from_address: string
-    total_amount: number
-    total_fee: number
-    data: string | null
-    date_crafted: string // ISO string
-    signature: string
-    nft: any
-    unlock_time: string | null
-    callback_details: any
-    recovery_details: any
 }
 
 // BTC
