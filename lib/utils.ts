@@ -2,7 +2,7 @@ import type { Account, IBtcKeypair } from "~types/types";
 import { Network } from "~types/types";
 
 
-import { VfxClient } from 'vfx-web-sdk'
+import { VfxClient, btc } from 'vfx-web-sdk'
 
 export const mnemonicToAccount = (network: Network, mnemonic: string, index: number = 0): Account => {
     const client = new VfxClient(network)
@@ -112,6 +112,6 @@ export const createBtcKeypairFromVfx = (network: Network, vfxPrivateKey: string)
     // Use BtcClient convenience method
     const btcNetwork = network === Network.Mainnet ? 'mainnet' : 'testnet'
     console.log("VFX Network:", network, "-> BTC Network:", btcNetwork)
-    const btcClient = new window.btc.BtcClient(btcNetwork)
+    const btcClient = new btc.BtcClient(btcNetwork)
     return btcClient.generateEmailKeypair(email, password, 0)
 }

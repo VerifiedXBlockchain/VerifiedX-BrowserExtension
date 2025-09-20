@@ -10,7 +10,7 @@ import SendForm from "~lib/components/SendForm"
 import TransactionList from "~lib/components/TransactionList"
 import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
-import { VfxClient } from 'vfx-web-sdk'
+import { VfxClient, btc } from 'vfx-web-sdk'
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
 import { addPendingTransaction, decryptBtcKeypair } from "~lib/secureStorage"
@@ -64,7 +64,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             setBtcKeypair(keypair)
 
             // Fetch BTC account info using the keypair
-            const btcClient = new window.btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
+            const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
             const accountInfo = await btcClient.getAddressInfo(keypair.address || keypair.addresses.bech32 || '')
             console.log("fetchBtcDetails: Got account info:", accountInfo)
             setBtcAccountInfo(accountInfo)
@@ -135,7 +135,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             console.log("Network:", network === Network.Mainnet ? 'mainnet' : 'testnet')
             console.log("WIF:", btcKeypair.wif)
 
-            const btcClient = new window.btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
+            const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
             const hash = await btcClient.sendBtc(btcKeypair.wif, toAddress, amountInSatoshis);
 
             console.log("🎉 BTC TRANSACTION SENT! 🎉")

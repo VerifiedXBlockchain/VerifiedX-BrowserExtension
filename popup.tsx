@@ -12,8 +12,7 @@ import ImportPrivateKey from "~popup/pages/ImportPrivateKey"
 import RecoverMnemonic from "~popup/pages/RecoverMnemonic"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import { Network, Currency, type Account } from "~types/types"
-import { VfxClient } from 'vfx-web-sdk'
-import "assets/btc.js"
+import { VfxClient, btc } from 'vfx-web-sdk'
 import { createAccountFromSecret, createBtcKeypairFromVfx } from "~lib/utils"
 
 function IndexPopup() {

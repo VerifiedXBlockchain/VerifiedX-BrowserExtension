@@ -1,5 +1,15 @@
-// Import VFX types from the official npm package
+// Import types from the unified vfx-web-sdk package (VFX + BTC)
 export type { Keypair, VfxAddress, Transaction, PaginatedResponse } from 'vfx-web-sdk'
+
+// Import BTC types from the btc namespace
+import type { btc } from 'vfx-web-sdk'
+export type IBtcKeypair = btc.IBtcKeypair
+export type IBtcAddresses = btc.IBtcAddresses
+export type IAccountInfo = btc.IAccountInfo
+export type ITransaction = btc.ITransaction
+export type ICreateTxResponse = btc.ICreateTxResponse
+export type IBroadcastTxResponse = btc.IBroadcastTxResponse
+export type IFeeRates = btc.IFeeRates
 
 // Network enum - defined locally to avoid runtime issues, matches vfx-web-sdk values
 export enum Network {
@@ -20,89 +30,8 @@ export interface Account {
     address: string;
 }
 
-// BTC
-
-
-export interface IBtcKeypair {
-    address: string | undefined;
-    addresses: IBtcAddresses;
-    wif: string;
-    privateKey: string | undefined;
-    publicKey: string;
-    mnemonic?: string;
-}
-
-export interface IBtcAddresses {
-    p2pkh: string | undefined;    // Legacy (P2PKH)
-    p2sh: string | undefined;     // Nested Segwit (P2SH-P2WPKH)
-    bech32: string | undefined;   // Native Segwit (P2WPKH)
-    bech32m: string | undefined;  // Taproot (P2TR)
-}
-
-export interface IAccountInfo {
-    totalRecieved: number;
-    totalSent: number;
-    balance: number;
-    txCount: number;
-}
-
-export interface ITransaction {
-    txid: string;
-    version: number;
-    locktime: number;
-    vin: ITransactionInput[];
-    vout: ITransactionOutput[];
-    size: number;
-    weight: number;
-    fee: number;
-    status: ITransactionStatus;
-}
-
-export interface ITransactionInput {
-    txid: string;
-    vout: number;
-    prevout: ITransactionOutput;
-    scriptsig: string;
-    scriptsig_asm: string;
-    witness: string[];
-    is_coinbase: boolean;
-    sequence: number;
-}
-
-export interface ITransactionOutput {
-    scriptpubkey: string;
-    scriptpubkey_asm: string;
-    scriptpubkey_type: string;
-    scriptpubkey_address?: string;
-    value: number;
-}
-
-export interface ITransactionStatus {
-    confirmed: boolean;
-    block_height: number;
-    block_hash: string;
-    block_time: number;
-}
-
-export interface ICreateTxResponse {
-    success: boolean;
-    result: string | null;
-    error: string | null;
-}
-
-export interface IBroadcastTxResponse {
-    success: boolean;
-    result: string | null;
-    error: string | null;
-}
-
-export interface IFeeRates {
-    fastestFee: number;
-    halfHourFee: number;
-    hourFee: number;
-    economyFee: number;
-    minimumFee: number;
-}
+// Note: BTC types are now imported from vfx-web-sdk/btc namespace above
+// Keeping only extension-specific interfaces that aren't in the SDK
 
 export interface IUTXO {
     txid: string;
@@ -110,3 +39,8 @@ export interface IUTXO {
     status: ITransactionStatus;
     value: number;
 }
+
+// Re-export some types with local names for backward compatibility
+export type ITransactionInput = btc.ITransaction['vin'][0]
+export type ITransactionOutput = btc.ITransaction['vout'][0]
+export type ITransactionStatus = btc.ITransaction['status']
