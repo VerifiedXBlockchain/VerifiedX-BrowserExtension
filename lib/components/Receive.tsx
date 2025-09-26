@@ -11,12 +11,14 @@ interface ReceiveProps {
     currency: Currency;
     address?: VfxAddress;
     btcKeypair?: IBtcKeypair;
+    btcDomain?: string;
     network: Network;
     handleCreateVfxDomain: (domain: string) => Promise<void>;
+    handleCreateBtcDomain: (domain: string) => Promise<void>;
 }
 
 
-export default function Receive({ currency, address, btcKeypair, network, handleCreateVfxDomain }: ReceiveProps) {
+export default function Receive({ currency, address, btcKeypair, btcDomain, network, handleCreateVfxDomain, handleCreateBtcDomain }: ReceiveProps) {
 
     const [creatingDomain, setCreatingDomain] = useState<boolean>(false);
     const [newDomain, setNewDomain] = useState<string>("");
@@ -34,16 +36,18 @@ export default function Receive({ currency, address, btcKeypair, network, handle
     };
 
     const getAdnr = () => {
-        return currency === Currency.VFX ? address?.adnr : null;
+
+        return currency === Currency.VFX ? address?.adnr : btcDomain;
     };
 
 
-    // Check for pending domain transactions (VFX only)
+    // Check for pending domain transactions
     useEffect(() => {
         const checkPendingDomains = async () => {
-            if (currency === Currency.VFX && address?.address) {
+            if (address?.address) {
                 const pending = await getPendingTransactions(network, address.address);
-                const hasDomainTx = pending.some(tx => tx.type_label === "Domain");
+                const labelLookup = currency == Currency.VFX ? "VFX Domain" : "BTC Domain"
+                const hasDomainTx = pending.some(tx => tx.type_label == labelLookup);
                 setHasPendingDomain(hasDomainTx);
             } else {
                 setHasPendingDomain(false);
@@ -97,7 +101,11 @@ export default function Receive({ currency, address, btcKeypair, network, handle
 
         try {
             setLoading(true);
-            await handleCreateVfxDomain(domain);
+            if (currency === Currency.VFX) {
+                await handleCreateVfxDomain(domain);
+            } else {
+                await handleCreateBtcDomain(domain);
+            }
             setNewDomain("");
             setCreatingDomain(false);
         } finally {
@@ -110,7 +118,7 @@ export default function Receive({ currency, address, btcKeypair, network, handle
             <p className="text-center">Copy and Paste your address:</p>
             <CopyAddress address={getReceiveAddress()} network={network} adnr={getAdnr()} />
 
-            {currency === Currency.VFX && !getAdnr() && (
+            {!getAdnr() && (
                 <div className='pt-2'>
 
                     {!creatingDomain && (
@@ -118,13 +126,12 @@ export default function Receive({ currency, address, btcKeypair, network, handle
                         <div className="text-center ">
                             <button
                                 disabled={hasPendingDomain}
-                                className={`py-1 px-2 rounded-lg transition text-white ${
-                                    hasPendingDomain
-                                        ? 'bg-gray-600 cursor-not-allowed'
-                                        : currency === Currency.VFX
-                                            ? 'bg-blue-600 hover:bg-blue-500'
-                                            : 'bg-orange-600 hover:bg-orange-500'
-                                }`}
+                                className={`py-1 px-2 rounded-lg transition text-white ${hasPendingDomain
+                                    ? 'bg-gray-600 cursor-not-allowed'
+                                    : currency === Currency.VFX
+                                        ? 'bg-blue-600 hover:bg-blue-500'
+                                        : 'bg-orange-600 hover:bg-orange-500'
+                                    }`}
                                 onClick={() => setCreatingDomain(true)}>
                                 {hasPendingDomain ? 'Domain Pending...' : 'Create Domain'}
                             </button>
@@ -152,13 +159,12 @@ export default function Receive({ currency, address, btcKeypair, network, handle
                                 <button
                                     type="submit"
                                     disabled={loading}
-                                    className={`w-full font-semibold py-2 rounded-lg transition flex items-center justify-center ${
-                                        loading
-                                            ? 'bg-gray-600 cursor-not-allowed'
-                                            : currency === Currency.VFX
-                                                ? 'bg-blue-600 hover:bg-blue-500'
-                                                : 'bg-orange-600 hover:bg-orange-500'
-                                    } text-white`}
+                                    className={`w-full font-semibold py-2 rounded-lg transition flex items-center justify-center ${loading
+                                        ? 'bg-gray-600 cursor-not-allowed'
+                                        : currency === Currency.VFX
+                                            ? 'bg-blue-600 hover:bg-blue-500'
+                                            : 'bg-orange-600 hover:bg-orange-500'
+                                        } text-white`}
                                 >
                                     {loading ? (
                                         <>

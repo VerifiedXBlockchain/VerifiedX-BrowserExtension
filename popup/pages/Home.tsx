@@ -34,6 +34,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
     const [addressDetails, setAddressDetails] = useState<VfxAddress | null>(null)
     const [btcKeypair, setBtcKeypair] = useState<IBtcKeypair | null>(null)
     const [btcAccountInfo, setBtcAccountInfo] = useState<IAccountInfo | null>(null)
+    const [btcDomain, setBtcDomain] = useState<string | null>(null);
     const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions" | "ExportKey" | "EjectWallet">("Main")
     const { message, showToast } = useToast()
 
@@ -49,25 +50,26 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
 
     const fetchBtcDetails = async () => {
         try {
-            console.log("fetchBtcDetails: Starting...")
             // Get the current mnemonic (password) from background
             const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
             if (!mnemonic) {
                 console.error("Wallet locked - cannot fetch BTC details")
                 return
             }
-            console.log("fetchBtcDetails: Got mnemonic")
 
             // Decrypt BTC keypair
             const keypair = await decryptBtcKeypair(mnemonic, network)
-            console.log("fetchBtcDetails: Decrypted BTC keypair:", keypair)
             setBtcKeypair(keypair)
 
             // Fetch BTC account info using the keypair
             const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
             const accountInfo = await btcClient.getAddressInfo(keypair.address || keypair.addresses.bech32 || '')
-            console.log("fetchBtcDetails: Got account info:", accountInfo)
             setBtcAccountInfo(accountInfo)
+
+            const vfxClient = new VfxClient(network);
+
+            const btcDomain = await vfxClient.lookupBtcDomainFromBtcAddress(keypair.address)
+            setBtcDomain(btcDomain);
 
         } catch (err) {
             console.error("Failed to fetch BTC details:", err)
@@ -127,21 +129,11 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             // Convert BTC amount to satoshis
             const amountInSatoshis = Math.round(amount * 100000000);
 
-            console.log("=== BTC SEND TRANSACTION ===")
-            console.log("From Address:", btcKeypair.address || btcKeypair.addresses?.bech32)
-            console.log("To Address:", toAddress)
-            console.log("Amount (BTC):", amount)
-            console.log("Amount (satoshis):", amountInSatoshis)
-            console.log("Network:", network === Network.Mainnet ? 'mainnet' : 'testnet')
-            console.log("WIF:", btcKeypair.wif)
+
 
             const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
             const hash = await btcClient.sendBtc(btcKeypair.wif, toAddress, amountInSatoshis);
 
-            console.log("🎉 BTC TRANSACTION SENT! 🎉")
-            console.log("Transaction Hash:", hash)
-            console.log(`View on ${network === Network.Mainnet ? 'blockchain.info' : 'blockstream.info/testnet'}: ${hash}`)
-            console.log("==============================")
 
             return hash;
 
@@ -151,7 +143,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
         }
     }
 
-    const handleCreateDomain = async (domain: string): Promise<void> => {
+    const handleCreateDomain = async (domain: string, currency: Currency, btcPrivateKey?: string): Promise<void> => {
         try {
             const client = new VfxClient(network);
             const kp: Keypair = {
@@ -160,7 +152,23 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 publicKey: account.public,
             }
 
-            const hash = await client.buyVfxDomain(kp, domain);
+            console.log("handleCreateDomain");
+
+            let hash = "";
+            if (currency == Currency.VFX) {
+                hash = await client.buyVfxDomain(kp, domain);
+            } else {
+                console.log("btc");
+
+                if (btcPrivateKey == null) {
+                    throw Error("BTC Private Key Not Provided");
+                }
+                console.log("about to go");
+
+                hash = await client.buyBtcDomain(kp, domain, btcPrivateKey);
+                console.log("hash");
+
+            }
 
             if (hash) {
                 // Create pending transaction immediately
@@ -168,7 +176,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                     hash: hash,
                     height: -1, // Use -1 to indicate pending
                     type: 2, // Assuming 2 is domain purchase type
-                    type_label: "Domain",
+                    type_label: `${currency == Currency.VFX ? 'VFX' : "BTC"} Domain`,
                     to_address: account.address,
                     from_address: account.address,
                     total_amount: 5.0, // Domain cost
@@ -344,8 +352,10 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                         currency={currency}
                         address={addressDetails}
                         btcKeypair={btcKeypair}
+                        btcDomain={btcDomain}
                         network={network}
-                        handleCreateVfxDomain={handleCreateDomain}
+                        handleCreateVfxDomain={(domain) => handleCreateDomain(domain, Currency.VFX)}
+                        handleCreateBtcDomain={(domain) => handleCreateDomain(domain, Currency.BTC, btcKeypair.privateKey)}
                     />
                 </div>
             )}
