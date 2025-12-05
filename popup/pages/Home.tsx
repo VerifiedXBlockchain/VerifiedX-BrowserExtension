@@ -19,6 +19,7 @@ import CurrencyToggle from "~lib/components/CurrencyToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
 import PasswordPrompt from "~lib/components/PasswordPrompt"
 import EjectWalletConfirm from "~lib/components/EjectWalletConfirm"
+import PaymentLink from "~lib/components/PaymentLink"
 
 interface HomeProps {
     network: Network
@@ -35,7 +36,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
     const [btcKeypair, setBtcKeypair] = useState<IBtcKeypair | null>(null)
     const [btcAccountInfo, setBtcAccountInfo] = useState<IAccountInfo | null>(null)
     const [btcDomain, setBtcDomain] = useState<string | null>(null);
-    const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions" | "ExportKey" | "EjectWallet">("Main")
+    const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions" | "ExportKey" | "EjectWallet" | "PaymentLink">("Main")
     const { message, showToast } = useToast()
 
     const fetchVfxDetails = async () => {
@@ -245,10 +246,14 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 </div>
             </div>
 
-            {/* Currency Toggle */}
-            <div className="px-3 py-2 flex justify-center">
-                <CurrencyToggle currency={currency} onCurrencyChange={onCurrencyChange} />
-            </div>
+            {/* Currency Toggle - hide on PaymentLink screen */}
+            {section !== "PaymentLink" ? (
+                <div className="px-3 py-2 flex justify-center">
+                    <CurrencyToggle currency={currency} onCurrencyChange={onCurrencyChange} />
+                </div>
+            ) : (
+                <div className="pt-3" />
+            )}
 
             {section == "Main" && (
 
@@ -314,6 +319,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                         {section == "Receive" && `Receive ${currency === Currency.VFX ? 'VFX' : 'BTC'}`}
                         {section == "ExportKey" && "Export Private Key"}
                         {section == "EjectWallet" && "Eject Wallet"}
+                        {section == "PaymentLink" && "Create Payment Link"}
                     </div>
 
                     <div className="w-12">&nbsp;</div>
@@ -342,6 +348,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                                 setSection("Main");
                             }
                         }}
+                        onCreatePaymentLink={() => setSection("PaymentLink")}
                     />
                 </div>
             )}
@@ -391,6 +398,22 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                             setSection("Main")
                             onEjectWallet()
                         }}
+                    />
+                </div>
+            )}
+
+            {section == "PaymentLink" && addressDetails && (
+                <div className="p-3">
+                    <PaymentLink
+                        network={network}
+                        vfxAddress={addressDetails}
+                        account={account}
+                        onSuccess={() => {
+                            showToast("Payment link created!")
+                            setSection("Main")
+                            fetchVfxDetails() // Refresh balance
+                        }}
+                        onBack={() => setSection("Main")}
                     />
                 </div>
             )}
