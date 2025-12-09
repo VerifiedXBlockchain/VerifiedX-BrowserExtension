@@ -5,6 +5,7 @@ import wordmark from 'data-base64:~assets/wordmark.png'
 import SetupWallet from "~popup/pages/SetupWallet"
 import BackupMnemonic from "~popup/pages/BackupMnemonic"
 import SetupBtc from "~popup/pages/SetupBtc"
+import ApproveKeyShare from "~popup/pages/ApproveKeyShare"
 import { isWalletCreated, hasAnyWallet, getNetwork, setNetwork, clearWallet, encryptBtcKeypair } from "~lib/secureStorage"
 import Home from "~popup/pages/Home"
 import Unlock from "~popup/pages/Unlock"
@@ -21,12 +22,16 @@ function IndexPopup() {
   const [mnemonic, setMnemonic] = useState("")
   const [password, setPassword] = useState("")
   const [account, setAccount] = useState<Account | null>(null)
-  const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home" | "RecoverMnemonic" | "ImportPrivateKey" | "SetupBtc">("Booting")
+  const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home" | "RecoverMnemonic" | "ImportPrivateKey" | "SetupBtc" | "ApproveKeyShare">("Booting")
 
   useEffect(() => {
     const init = async () => {
       const savedNetwork = await getNetwork()
       setNetworkState(savedNetwork)
+
+      // Check if opened for key share approval
+      const urlParams = new URLSearchParams(window.location.search)
+      const keyshareRequestId = urlParams.get('keyshare')
 
       const hasWallet = await hasAnyWallet()
 
@@ -49,7 +54,13 @@ function IndexPopup() {
         const account = createAccountFromSecret(savedNetwork, mnemonic);
 
         setAccount(account)
-        setScreen("Home")
+
+        // Check for pending key share request
+        if (keyshareRequestId) {
+          setScreen("ApproveKeyShare")
+        } else {
+          setScreen("Home")
+        }
       } else {
         setScreen("Unlock")
       }
@@ -306,6 +317,17 @@ function IndexPopup() {
           onImportWif={() => {
             // TODO: Implement WIF import
             console.log("Import WIF")
+          }}
+        />
+      )}
+
+      {screen === "ApproveKeyShare" && account && (
+        <ApproveKeyShare
+          network={network}
+          account={account}
+          onComplete={() => {
+            // Close the popup window after approval/denial
+            window.close()
           }}
         />
       )}

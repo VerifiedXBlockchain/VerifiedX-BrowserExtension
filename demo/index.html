@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VerifiedX Key Share Demo</title>
+  <style>
+    :root {
+      --primary: #3b82f6;
+      --success: #22c55e;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .card h3 {
+      margin-bottom: 0.5rem;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--error);
+    }
+
+    .status-dot.connected {
+      background: var(--success);
+    }
+
+    .status-dot.installed {
+      background: var(--primary);
+    }
+
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: var(--success);
+    }
+
+    .result {
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      word-break: break-all;
+      font-family: monospace;
+      font-size: 0.8rem;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+      margin-top: 0.75rem;
+    }
+
+    .label:first-child {
+      margin-top: 0;
+    }
+
+    .value {
+      color: var(--success);
+      word-break: break-all;
+    }
+
+    .error {
+      color: var(--error);
+    }
+
+    .warning {
+      color: var(--warning);
+    }
+
+    input {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      font-size: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .warning-box {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .warning-box p {
+      color: var(--warning);
+      font-size: 0.875rem;
+    }
+
+    pre {
+      background: #0f172a;
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.8rem;
+      margin-top: 1rem;
+    }
+
+    code {
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .step-number {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>VerifiedX Key Share Demo</h1>
+    <p class="subtitle">Request encrypted private keys from the VerifiedX browser extension</p>
+
+    <div class="warning-box">
+      <p><strong>Security Warning:</strong> This demo shows how websites can request your encrypted private key. Only use this with websites you fully trust. The decrypted key gives full control over your funds.</p>
+    </div>
+
+    <!-- Extension Status -->
+    <div class="card">
+      <h3>Extension Status</h3>
+      <div class="status" id="extensionStatus">
+        <div class="status-dot"></div>
+        <span>Checking...</span>
+      </div>
+    </div>
+
+    <!-- Step 1: Request Key -->
+    <div class="card">
+      <div class="step-header">
+        <div class="step-number">1</div>
+        <h3>Request Encrypted Key</h3>
+      </div>
+      <p style="color: var(--muted); margin-bottom: 0.5rem; font-size: 0.875rem;">
+        Request the encrypted private key from the extension. User will enter their password in the popup.
+      </p>
+      <button id="requestKeyBtn" disabled>Request Key from Extension</button>
+      <div id="encryptedResult" class="result" style="display: none;"></div>
+    </div>
+
+    <!-- Step 2: Decrypt Key -->
+    <div class="card">
+      <div class="step-header">
+        <div class="step-number">2</div>
+        <h3>Decrypt Key</h3>
+      </div>
+      <p style="color: var(--muted); margin-bottom: 0.5rem; font-size: 0.875rem;">
+        Enter the same password you used in the extension to decrypt the private key.
+      </p>
+      <input type="password" id="decryptPassword" placeholder="Enter password" disabled>
+      <button id="decryptBtn" class="secondary" disabled>Decrypt Private Key</button>
+      <div id="decryptResult" class="result" style="display: none;"></div>
+    </div>
+
+    <!-- Code Example -->
+    <div class="card">
+      <h3>Integration Code</h3>
+      <pre><code>// Check if extension is installed
+if (typeof window.verifiedX !== 'undefined') {
+  try {
+    // Request encrypted key (opens approval popup)
+    const { salt, iv, cipherText, address, publicKey } =
+      await window.verifiedX.requestKey();
+
+    // User enters password on your website
+    const password = prompt('Enter your wallet password');
+
+    // Decrypt the private key
+    const privateKey = await decryptKey(
+      { salt, iv, cipherText },
+      password
+    );
+
+    // Now you can use the private key for transactions
+    console.log('Private key:', privateKey);
+  } catch (error) {
+    console.error('Request failed:', error);
+  }
+}</code></pre>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let encryptedData = null;
+
+    // Elements
+    const extensionStatus = document.getElementById('extensionStatus');
+    const requestKeyBtn = document.getElementById('requestKeyBtn');
+    const decryptPassword = document.getElementById('decryptPassword');
+    const decryptBtn = document.getElementById('decryptBtn');
+    const encryptedResult = document.getElementById('encryptedResult');
+    const decryptResult = document.getElementById('decryptResult');
+
+    // Helper to encode text as Uint8Array
+    function encode(str) {
+      return new TextEncoder().encode(str);
+    }
+
+    // Helper to decode Uint8Array as text
+    function decode(buf) {
+      return new TextDecoder().decode(buf);
+    }
+
+    // Derive a cryptographic key from password (same as extension)
+    async function deriveKey(password, salt) {
+      const baseKey = await crypto.subtle.importKey(
+        "raw",
+        encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
+
+      return crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: new Uint8Array(salt),
+          iterations: 10000, // Same as extension export encryption
+          hash: "SHA-256",
+        },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    // Decrypt the private key
+    async function decryptKey(encryptedData, password) {
+      const { salt, iv, cipherText } = encryptedData;
+      const key = await deriveKey(password, salt);
+
+      const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: new Uint8Array(iv) },
+        key,
+        new Uint8Array(cipherText)
+      );
+
+      return decode(decrypted);
+    }
+
+    // Check extension status
+    function checkExtension() {
+      const isInstalled = typeof window.verifiedX !== 'undefined';
+
+      const dot = extensionStatus.querySelector('.status-dot');
+      const text = extensionStatus.querySelector('span');
+
+      if (isInstalled) {
+        dot.classList.add('installed');
+        text.textContent = 'Extension installed and ready';
+        requestKeyBtn.disabled = false;
+      } else {
+        dot.classList.remove('installed');
+        text.textContent = 'Extension not found. Please install VerifiedX extension.';
+        requestKeyBtn.disabled = true;
+      }
+    }
+
+    // Wait for extension to initialize
+    window.addEventListener('verifiedX#initialized', checkExtension);
+
+    // Also check immediately and after a short delay
+    checkExtension();
+    setTimeout(checkExtension, 1000);
+    setTimeout(checkExtension, 2000);
+
+    // Request key handler
+    requestKeyBtn.addEventListener('click', async () => {
+      try {
+        requestKeyBtn.disabled = true;
+        requestKeyBtn.textContent = 'Waiting for approval...';
+        encryptedResult.style.display = 'none';
+
+        const result = await window.verifiedX.requestKey();
+
+        encryptedData = {
+          salt: result.salt,
+          iv: result.iv,
+          cipherText: result.cipherText
+        };
+
+        encryptedResult.style.display = 'block';
+        encryptedResult.innerHTML = `
+          <div class="label">Address:</div>
+          <div class="value">${result.address}</div>
+          <div class="label">Public Key:</div>
+          <div class="value">${result.publicKey}</div>
+          <div class="label">Encrypted Data Received:</div>
+          <div class="value">
+            Salt: ${result.salt.length} bytes<br>
+            IV: ${result.iv.length} bytes<br>
+            CipherText: ${result.cipherText.length} bytes
+          </div>
+        `;
+
+        // Enable decrypt step
+        decryptPassword.disabled = false;
+        decryptBtn.disabled = false;
+
+        requestKeyBtn.textContent = 'Key Received!';
+
+      } catch (error) {
+        encryptedResult.style.display = 'block';
+        encryptedResult.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+        requestKeyBtn.disabled = false;
+        requestKeyBtn.textContent = 'Request Key from Extension';
+      }
+    });
+
+    // Decrypt handler
+    decryptBtn.addEventListener('click', async () => {
+      const password = decryptPassword.value;
+
+      if (!password) {
+        decryptResult.style.display = 'block';
+        decryptResult.innerHTML = `<div class="error">Please enter a password</div>`;
+        return;
+      }
+
+      if (!encryptedData) {
+        decryptResult.style.display = 'block';
+        decryptResult.innerHTML = `<div class="error">No encrypted data. Request key first.</div>`;
+        return;
+      }
+
+      try {
+        decryptBtn.disabled = true;
+        decryptBtn.textContent = 'Decrypting...';
+
+        const privateKey = await decryptKey(encryptedData, password);
+
+        decryptResult.style.display = 'block';
+        decryptResult.innerHTML = `
+          <div class="label">Decrypted Private Key:</div>
+          <div class="value" style="color: var(--success);">${privateKey}</div>
+          <div class="label" style="margin-top: 1rem;">Success!</div>
+          <div style="color: var(--muted); font-size: 0.75rem;">
+            You now have the private key and can use it to sign transactions.
+          </div>
+        `;
+
+        decryptBtn.textContent = 'Decrypted!';
+
+      } catch (error) {
+        decryptResult.style.display = 'block';
+        decryptResult.innerHTML = `<div class="error">Decryption failed. Wrong password?</div>`;
+        decryptBtn.disabled = false;
+        decryptBtn.textContent = 'Decrypt Private Key';
+      }
+    });
+  </script>
+</body>
+</html>
