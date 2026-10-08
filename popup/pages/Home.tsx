@@ -80,7 +80,12 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             setUncertainSendState(record)
             if (!record) return
 
-            const outcome = await checkDispatchOutcome(network, record.hash, record.recordedAt)
+            const { outcome, chainTimeBasis } = await checkDispatchOutcome(record)
+            if (chainTimeBasis !== undefined) {
+                const updated = { ...record, chainTimeBasis }
+                await setUncertainSend(updated)
+                if (!cancelled) setUncertainSendState(updated)
+            }
             if (cancelled || outcome === "unknown") return
 
             await clearUncertainSend(network, account.address)

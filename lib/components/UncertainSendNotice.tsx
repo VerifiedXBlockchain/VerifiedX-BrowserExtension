@@ -5,7 +5,8 @@ interface Props {
 }
 
 export default function UncertainSendNotice({ send }: Props) {
-    const expiresAt = new Date(uncertainSendExpiresAt(send.recordedAt))
+    // Display only: the decision uses node time (see lib/dispatchCheck.ts).
+    const expiresAt = new Date(uncertainSendExpiresAt(send.chainTimeBasis ?? send.recordedAt))
 
     return (
         <div data-testid="uncertain-send" className="bg-amber-900/30 border border-amber-600/50 rounded-lg p-3 text-xs space-y-2">
@@ -33,7 +34,7 @@ export default function UncertainSendNotice({ send }: Props) {
                 </a>
             </div>
             <p className="text-amber-200/80">
-                Sending VFX is paused until this transaction shows up on chain, or until{" "}
+                Sending VFX is paused until this transaction shows up on chain, or until about{" "}
                 {expiresAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}, after which it can no longer
                 be included. Checking every few seconds.
             </p>

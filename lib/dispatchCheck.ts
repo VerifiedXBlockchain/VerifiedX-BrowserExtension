@@ -10,6 +10,11 @@
 // explorer has indexed a block crafted after the transaction stopped being
 // includable. The node rejects transactions older than MaxTxAgeSeconds
 // (3600s), so a hash still missing from blocks past that point never landed.
+//
+// The transaction's timestamp comes from the node, not this machine, so the
+// deadline is measured from a node timestamp read after the failure (always
+// at or after the transaction's own) and compared with block times. The
+// local clock is never used for the decision.
 
 import { Network } from "~types/types"
 
@@ -21,7 +26,7 @@ const SPYGLASS_API = {
 // Node-side maximum transaction age (Globals.MaxTxAgeSeconds in Core).
 export const TX_MAX_AGE_MS = 60 * 60 * 1000
 // Covers the node's future-skew allowance (120s) plus clock difference
-// between this machine and the validator that crafts the block.
+// between the node that stamped the transaction and the block's validator.
 export const TX_EXPIRY_MARGIN_MS = 5 * 60 * 1000
 
 export type DispatchOutcome = "landed" | "never-landed" | "unknown"
@@ -33,9 +38,12 @@ export interface UncertainSend {
     toAddress: string
     amount: number
     label: string
-    // Taken after the dispatch failed, so it is no earlier than the
-    // transaction's own timestamp. Expiry is measured from here.
+    // Local time the failure was recorded; display only.
     recordedAt: number
+    // Node time (ms) read after the failure, so it is no earlier than the
+    // transaction's own timestamp. Expiry is measured from here. Filled in
+    // by the first check that can reach the node.
+    chainTimeBasis?: number
     paymentLink?: {
         linkId: string
         shortUrl: string
@@ -44,8 +52,8 @@ export interface UncertainSend {
     }
 }
 
-export function uncertainSendExpiresAt(recordedAt: number): number {
-    return recordedAt + TX_MAX_AGE_MS + TX_EXPIRY_MARGIN_MS
+export function uncertainSendExpiresAt(basis: number): number {
+    return basis + TX_MAX_AGE_MS + TX_EXPIRY_MARGIN_MS
 }
 
 export function explorerTxUrl(network: Network, hash: string): string {
@@ -54,36 +62,59 @@ export function explorerTxUrl(network: Network, hash: string): string {
 
 type FetchFn = (input: string, init?: RequestInit) => Promise<Response>
 
+export interface DispatchCheck {
+    outcome: DispatchOutcome
+    // Set when this check read the node time for a send that had none.
+    chainTimeBasis?: number
+}
+
 export async function checkDispatchOutcome(
-    network: Network,
-    hash: string,
-    recordedAt: number,
+    send: Pick<UncertainSend, "network" | "hash" | "chainTimeBasis">,
     fetchFn: FetchFn = (input, init) => fetch(input, init)
-): Promise<DispatchOutcome> {
-    const base = SPYGLASS_API[network]
+): Promise<DispatchCheck> {
+    const base = SPYGLASS_API[send.network]
 
     try {
-        const txResponse = await fetchFn(`${base}/transaction/${encodeURIComponent(hash)}/`, { cache: "no-store" })
+        const txResponse = await fetchFn(`${base}/transaction/${encodeURIComponent(send.hash)}/`, { cache: "no-store" })
         if (txResponse.ok) {
-            return "landed"
+            return { outcome: "landed" }
         }
         if (txResponse.status !== 404) {
-            return "unknown"
+            return { outcome: "unknown" }
+        }
+
+        let basis = send.chainTimeBasis
+        let newBasis: number | undefined
+        if (basis === undefined) {
+            const timeResponse = await fetchFn(`${base}/raw/timestamp/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+                cache: "no-store"
+            })
+            const seconds = timeResponse.ok ? Number((await timeResponse.text()).trim()) : NaN
+            if (!Number.isFinite(seconds) || seconds <= 0) {
+                return { outcome: "unknown" }
+            }
+            basis = newBasis = seconds * 1000
         }
 
         const blocksResponse = await fetchFn(`${base}/blocks/?limit=1`, { cache: "no-store" })
         if (!blocksResponse.ok) {
-            return "unknown"
+            return { outcome: "unknown", chainTimeBasis: newBasis }
         }
         const blocks: { results?: Array<{ date_crafted?: string }> } = await blocksResponse.json()
         const latestCrafted = Date.parse(blocks?.results?.[0]?.date_crafted ?? "")
         if (Number.isNaN(latestCrafted)) {
-            return "unknown"
+            return { outcome: "unknown", chainTimeBasis: newBasis }
         }
 
-        return latestCrafted > uncertainSendExpiresAt(recordedAt) ? "never-landed" : "unknown"
+        return {
+            outcome: latestCrafted > uncertainSendExpiresAt(basis) ? "never-landed" : "unknown",
+            chainTimeBasis: newBasis
+        }
     } catch (err) {
         console.error("Failed to check transaction status:", err)
-        return "unknown"
+        return { outcome: "unknown" }
     }
 }
