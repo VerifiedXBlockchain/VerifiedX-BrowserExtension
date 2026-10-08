@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { Network, type Account } from "~types/types"
 import type { KeyShareRequest } from "~types/auth"
 import { encryptKeyForExport } from "~lib/keyEncryption"
+import { createBtcKeypairFromVfx } from "~lib/utils"
 
 interface ApproveKeyShareProps {
   // The request this popup window was opened for; it never acts on another.
@@ -17,6 +18,17 @@ export default function ApproveKeyShare({ requestId, network, account, onComplet
   const [processing, setProcessing] = useState(false)
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+
+  // The wallet's BTC key is derived from this VFX key, so sharing one shares both.
+  const [btcAddress] = useState(() => {
+    try {
+      const btc = createBtcKeypairFromVfx(network, account.private)
+      return btc.address || btc.addresses?.bech32 || ""
+    } catch (err) {
+      console.error("Failed to derive BTC address:", err)
+      return ""
+    }
+  })
 
   useEffect(() => {
     // Fetch pending request from background
@@ -139,12 +151,23 @@ export default function ApproveKeyShare({ requestId, network, account, onComplet
           Once decrypted, they can create transactions without further approval.
           Only proceed if you fully trust this website.
         </p>
+        <p className="text-xs text-red-300 mt-2" data-testid="btc-warning">
+          <strong>This also gives the site control of your Bitcoin.</strong> Your BTC wallet is derived from
+          this same key, here and in the VerifiedX web wallet, so whoever has the key can spend the BTC at the
+          address below as well as your VFX.
+        </p>
       </div>
 
       {/* Account Info */}
-      <div className="bg-gray-800 rounded-lg p-4">
-        <p className="text-xs text-gray-400 mb-1">Your VFX address:</p>
-        <p className="text-sm font-mono break-all">{account.address}</p>
+      <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Your VFX address ({network}):</p>
+          <p className="text-sm font-mono break-all">{account.address}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Your BTC address (same key):</p>
+          <p className="text-sm font-mono break-all" data-testid="btc-address">{btcAddress || "Could not derive"}</p>
+        </div>
       </div>
 
       {/* Password Input */}
