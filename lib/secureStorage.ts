@@ -1,5 +1,6 @@
 import { Storage } from "@plasmohq/storage"
 import { Network, Currency, type IBtcKeypair } from "~types/types"
+import type { UncertainSend } from "~lib/dispatchCheck"
 
 
 const storage = new Storage()
@@ -210,4 +211,18 @@ export async function removePendingTransaction(network: Network, address: string
     const existing = await storage.get<{[hash: string]: any}>(key) || {}
     delete existing[hash]
     await storage.set(key, existing)
+}
+
+// A send whose dispatch outcome is unknown (see lib/dispatchCheck.ts).
+// While one is stored, new VFX sends from this address are blocked.
+export async function getUncertainSend(network: Network, address: string): Promise<UncertainSend | null> {
+    return (await storage.get<UncertainSend>(`${network}-${address}-uncertain-send`)) || null
+}
+
+export async function setUncertainSend(send: UncertainSend) {
+    await storage.set(`${send.network}-${send.fromAddress}-uncertain-send`, send)
+}
+
+export async function clearUncertainSend(network: Network, address: string) {
+    await storage.remove(`${network}-${address}-uncertain-send`)
 }

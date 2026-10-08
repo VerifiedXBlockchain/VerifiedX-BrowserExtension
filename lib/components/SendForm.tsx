@@ -15,9 +15,11 @@ interface SendFormProps {
     btcAccountInfo?: IAccountInfo;
     onSubmit: (toAddress: string, amount: number) => Promise<void>;
     onCreatePaymentLink?: () => void;
+    // True while an earlier send's outcome is unknown; resending could pay twice.
+    sendBlocked?: boolean;
 }
 
-export default function SendForm({ currency, network, vfxAddress, btcKeypair, btcAccountInfo, onSubmit, onCreatePaymentLink }: SendFormProps) {
+export default function SendForm({ currency, network, vfxAddress, btcKeypair, btcAccountInfo, onSubmit, onCreatePaymentLink, sendBlocked = false }: SendFormProps) {
     const [toAddress, setToAddress] = useState('');
     const [amount, setAmount] = useState('');
 
@@ -58,6 +60,7 @@ export default function SendForm({ currency, network, vfxAddress, btcKeypair, bt
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (loading || sendBlocked) return;
         setToAddressError("")
         setAmountError("")
         let hasError = false;
@@ -184,8 +187,8 @@ export default function SendForm({ currency, network, vfxAddress, btcKeypair, bt
 
             <button
                 type="submit"
-                disabled={loading}
-                className={`w-full font-semibold py-2 rounded-lg transition flex items-center justify-center ${loading
+                disabled={loading || sendBlocked}
+                className={`w-full font-semibold py-2 rounded-lg transition flex items-center justify-center ${loading || sendBlocked
                         ? 'bg-gray-600 cursor-not-allowed'
                         : currency === Currency.VFX
                             ? 'bg-blue-600 hover:bg-blue-500'
@@ -200,6 +203,8 @@ export default function SendForm({ currency, network, vfxAddress, btcKeypair, bt
                         </svg>
                         Sending...
                     </>
+                ) : sendBlocked ? (
+                    'Waiting on earlier send'
                 ) : (
                     'Send'
                 )}
@@ -209,7 +214,8 @@ export default function SendForm({ currency, network, vfxAddress, btcKeypair, bt
                 <button
                     type="button"
                     onClick={onCreatePaymentLink}
-                    className="w-full font-semibold py-2 rounded-lg transition flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white"
+                    disabled={sendBlocked}
+                    className="w-full font-semibold py-2 rounded-lg transition flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />

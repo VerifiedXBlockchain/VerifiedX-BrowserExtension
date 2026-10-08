@@ -10,16 +10,23 @@ import SendForm from "~lib/components/SendForm"
 import TransactionList from "~lib/components/TransactionList"
 import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
-import { VfxClient, btc } from 'vfx-web-sdk'
+import { VfxClient, btc, TransactionDispatchError } from 'vfx-web-sdk'
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
-import { addPendingTransaction, decryptBtcKeypair } from "~lib/secureStorage"
+import { addPendingTransaction, clearUncertainSend, decryptBtcKeypair, getUncertainSend, setUncertainSend } from "~lib/secureStorage"
+import { checkDispatchOutcome, type UncertainSend } from "~lib/dispatchCheck"
+import UncertainSendNotice from "~lib/components/UncertainSendNotice"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import CurrencyToggle from "~lib/components/CurrencyToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
 import PasswordPrompt from "~lib/components/PasswordPrompt"
 import EjectWalletConfirm from "~lib/components/EjectWalletConfirm"
 import PaymentLink from "~lib/components/PaymentLink"
+
+type SendResult =
+    | { status: "sent"; hash: string }
+    | { status: "uncertain"; hash: string }
+    | { status: "failed" }
 
 interface HomeProps {
     network: Network
@@ -37,7 +44,55 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
     const [btcAccountInfo, setBtcAccountInfo] = useState<IAccountInfo | null>(null)
     const [btcDomain, setBtcDomain] = useState<string | null>(null);
     const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions" | "ExportKey" | "EjectWallet" | "PaymentLink">("Main")
+    const [uncertainSend, setUncertainSendState] = useState<UncertainSend | null>(null)
     const { message, showToast } = useToast()
+
+    const recordUncertainSend = async (err: TransactionDispatchError, toAddress: string, amount: number, label: string) => {
+        const record: UncertainSend = {
+            hash: err.hash,
+            network,
+            fromAddress: account.address,
+            toAddress,
+            amount,
+            label,
+            recordedAt: Date.now()
+        }
+        await setUncertainSend(record)
+        setUncertainSendState(record)
+    }
+
+    // Load any unresolved send for this account and keep checking the chain
+    // until it is found in a block or can no longer be included.
+    useEffect(() => {
+        if (!account?.address) return
+        let cancelled = false
+
+        const resolve = async () => {
+            const record = await getUncertainSend(network, account.address)
+            if (cancelled) return
+            setUncertainSendState(record)
+            if (!record) return
+
+            const outcome = await checkDispatchOutcome(network, record.hash, record.recordedAt)
+            if (cancelled || outcome === "unknown") return
+
+            await clearUncertainSend(network, account.address)
+            setUncertainSendState(null)
+            if (outcome === "landed") {
+                showToast(`${record.label} confirmed on chain`)
+                fetchVfxDetails()
+            } else {
+                showToast(`${record.label} was not sent. You can send again.`)
+            }
+        }
+
+        resolve()
+        const interval = setInterval(resolve, 10_000)
+        return () => {
+            cancelled = true
+            clearInterval(interval)
+        }
+    }, [account?.address, network])
 
     const fetchVfxDetails = async () => {
         try {
@@ -77,7 +132,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
         }
     }
 
-    const handleSendCoin = async (toAddress: string, amount: number): Promise<string | null> => {
+    const handleSendCoin = async (toAddress: string, amount: number): Promise<SendResult> => {
         try {
             const client = new VfxClient(network);
             const kp: Keypair = {
@@ -110,13 +165,19 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 }
 
                 await addPendingTransaction(network, account.address, pendingTx)
+                return { status: "sent", hash }
             }
 
-            return hash;
+            return { status: "failed" }
 
         } catch (err) {
+            if (err instanceof TransactionDispatchError) {
+                console.error("Send dispatched but outcome unknown:", err)
+                await recordUncertainSend(err, toAddress, amount, "Send")
+                return { status: "uncertain", hash: err.hash }
+            }
             console.error("Failed to send coin:", err)
-            return null;
+            return { status: "failed" }
         }
     }
 
@@ -196,6 +257,11 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 showToast("Transaction sent!")
             }
         } catch (err) {
+            if (err instanceof TransactionDispatchError) {
+                console.error("Domain purchase dispatched but outcome unknown:", err)
+                await recordUncertainSend(err, account.address, 5.0, "Domain purchase")
+                return
+            }
             console.error("Failed to create domain:", err)
         }
     }
@@ -281,6 +347,11 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                         )}
                         <div className="py-2"></div>
 
+                        {currency === Currency.VFX && uncertainSend && (
+                            <div className="pb-3">
+                                <UncertainSendNotice send={uncertainSend} />
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-3 gap-3">
                             <button className={`${currency === Currency.VFX ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-600 hover:bg-orange-500'} p-3 rounded-lg font-semibold`} onClick={() => setSection("Send")}>
@@ -328,21 +399,29 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             )}
 
             {section == "Send" && (
-                <div className="p-3">
+                <div className="p-3 space-y-3">
+                    {currency === Currency.VFX && uncertainSend && <UncertainSendNotice send={uncertainSend} />}
                     <SendForm
                         currency={currency}
                         network={network}
                         vfxAddress={addressDetails}
                         btcKeypair={btcKeypair}
                         btcAccountInfo={btcAccountInfo}
+                        sendBlocked={currency === Currency.VFX && uncertainSend !== null}
                         onSubmit={async (toAddress, amount) => {
-                            let hash: string | null;
                             if (currency === Currency.VFX) {
-                                hash = await handleSendCoin(toAddress, amount);
-                            } else {
-                                hash = await handleSendBtc(toAddress, amount);
+                                const result = await handleSendCoin(toAddress, amount);
+                                if (result.status === "sent") {
+                                    showToast("Transaction sent!")
+                                    setSection("Main");
+                                } else if (result.status === "failed") {
+                                    showToast("Transaction failed. Nothing was sent.")
+                                }
+                                // "uncertain": stay here; the notice above explains and Send stays disabled
+                                return
                             }
 
+                            const hash = await handleSendBtc(toAddress, amount);
                             if (hash != null) {
                                 showToast("Transaction sent!")
                                 setSection("Main");
