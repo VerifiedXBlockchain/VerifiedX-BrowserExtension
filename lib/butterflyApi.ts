@@ -82,8 +82,6 @@ export async function createPaymentLink(
     }
 
     const url = `${API_BASE_URL}/api/butterfly/create/`
-    console.log('[ButterflyAPI] POST', url, body)
-
     const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -92,17 +90,13 @@ export async function createPaymentLink(
         body: JSON.stringify(body)
     })
 
-    console.log('[ButterflyAPI] Response status:', response.status)
-
     if (!response.ok) {
         const errorText = await response.text()
-        console.error('[ButterflyAPI] Error:', errorText)
+        console.error('[ButterflyAPI] Create payment link failed with status', response.status)
         throw new Error(`Failed to create payment link: ${errorText}`)
     }
 
-    const data = await response.json()
-    console.log('[ButterflyAPI] Response data:', data)
-    return data
+    return response.json()
 }
 
 export async function getPaymentLinkStatus(
