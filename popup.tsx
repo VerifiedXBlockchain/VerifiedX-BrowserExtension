@@ -282,10 +282,6 @@ function IndexPopup() {
 
               // Create BTC keypair from VFX private key
               const btcKeypair = createBtcKeypairFromVfx(network, account.private)
-              console.log("Created BTC keypair:", btcKeypair)
-              console.log("VFX Private Key:", account.private)
-              console.log("BTC Private Key:", btcKeypair.privateKey)
-              console.log("BTC WIF:", btcKeypair.wif)
 
               // Get the current global password from background script
               const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
