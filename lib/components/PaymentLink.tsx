@@ -12,6 +12,7 @@ import {
 import { copyToClipboard } from "~lib/utils"
 import { getVfxPrice, formatUsd } from "~lib/priceApi"
 import { VfxClient } from 'vfx-web-sdk'
+import { numberToUnits, parseAmount } from "~lib/amount"
 
 interface PaymentLinkProps {
     network: Network
@@ -58,7 +59,8 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
     }, [network])
 
     // Calculate USD values and fee
-    const amountNum = parseFloat(amount) || 0
+    const parsedInput = parseAmount(amount)
+    const amountNum = parsedInput.ok ? parsedInput.value : 0
     const usdValue = vfxPrice ? amountNum * vfxPrice : null
     const balanceUsd = vfxPrice ? balance * vfxPrice : null
     // Fee is $0.01 USD converted to VFX
@@ -71,14 +73,13 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
         e.preventDefault()
         setAmountError('')
 
-        const parsedAmount = parseFloat(amount)
-        if (isNaN(parsedAmount) || parsedAmount <= 0) {
-            setAmountError('Enter a valid amount')
+        if (!parsedInput.ok) {
+            setAmountError(parsedInput.error)
             return
         }
 
         // Check balance including fee
-        if (parsedAmount + feeVfx > balance) {
+        if (parsedInput.units + numberToUnits(feeVfx) > numberToUnits(balance)) {
             setAmountError(`Insufficient balance (includes ~${feeVfx.toFixed(4)} VFX fee)`)
             return
         }
@@ -93,7 +94,8 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
         try {
             // Step 1: Create payment link
             console.log('[PaymentLink] Creating payment link...', { network, amount, message, icon })
-            const response = await createPaymentLink(network, amount, message || undefined, icon)
+            const requestedAmount = parsedInput.ok ? parsedInput.display : amount
+            const response = await createPaymentLink(network, requestedAmount, message || undefined, icon)
             console.log('[PaymentLink] Payment link created:', response)
             setLinkData(response)
 
@@ -191,6 +193,7 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
                         <input
                             id="amount"
                             type="text"
+                            inputMode="decimal"
                             value={amount}
                             onChange={(e) => setAmount(e.target.value)}
                             placeholder="0.00"

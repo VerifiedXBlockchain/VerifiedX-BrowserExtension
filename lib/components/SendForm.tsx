@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { validateVfxAddress } from "~lib/utils";
+import { numberToUnits, parseAmount } from "~lib/amount";
 import { VfxClient } from 'vfx-web-sdk';
 
 import type { VfxAddress, IBtcKeypair, IAccountInfo } from "~types/types"
@@ -114,21 +115,20 @@ export default function SendForm({ currency, network, vfxAddress, btcKeypair, bt
             hasError = true;
         }
 
-        const parsedAmount = parseFloat(amount);
-        if (isNaN(parsedAmount)) {
-            setAmountError("Invalid Amount");
+        const parsedAmount = parseAmount(amount);
+        if (!parsedAmount.ok) {
+            setAmountError(parsedAmount.error);
             hasError = true;
-
-        } else if (parsedAmount > getBalance()) {
+        } else if (parsedAmount.units > numberToUnits(getBalance())) {
             setAmountError("Insufficient Balance");
             hasError = true;
         }
 
-        if (hasError) return;
+        if (hasError || !parsedAmount.ok) return;
 
         try {
             setLoading(true);
-            await onSubmit(resolvedAddress, parsedAmount);
+            await onSubmit(resolvedAddress, parsedAmount.value);
         } finally {
             setLoading(false);
         }
@@ -170,6 +170,7 @@ export default function SendForm({ currency, network, vfxAddress, btcKeypair, bt
                     <input
                         id="amount"
                         type="text"
+                        inputMode="decimal"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
                         placeholder="0.00"
