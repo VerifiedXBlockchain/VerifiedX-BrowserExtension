@@ -3,15 +3,23 @@ import type { VfxAddress, Keypair } from "~types/types"
 import { Network } from "~types/types"
 import {
     createPaymentLink,
+    getPaymentLinkStatus,
     pollForFunding,
     PAYMENT_LINK_ICONS,
     type PaymentLinkIcon,
-    type CreatePaymentLinkResponse,
     type PaymentLinkStatus
 } from "~lib/butterflyApi"
 import { copyToClipboard } from "~lib/utils"
 import { getVfxPrice, formatUsd } from "~lib/priceApi"
-import { VfxClient } from 'vfx-web-sdk'
+import { VfxClient, TransactionDispatchError } from 'vfx-web-sdk'
+import { numberToUnits, parseAmount } from "~lib/amount"
+import { verifyPaymentLinkQuote, type PaymentLinkQuote } from "~lib/paymentLinkQuote"
+import {
+    clearInFlightPaymentLink,
+    getInFlightPaymentLink,
+    setInFlightPaymentLink,
+    type InFlightPaymentLink
+} from "~lib/secureStorage"
 
 interface PaymentLinkProps {
     network: Network
@@ -21,11 +29,14 @@ interface PaymentLinkProps {
         private: string
         public: string
     }
+    // True while an earlier send's outcome is unknown; funding a link could pay twice.
+    sendBlocked?: boolean
+    onDispatchUncertain?: (err: TransactionDispatchError, link: InFlightPaymentLink) => Promise<void>
     onSuccess?: () => void
     onBack?: () => void
 }
 
-type Step = 'form' | 'confirm' | 'sending' | 'polling' | 'success' | 'error'
+type Step = 'form' | 'preparing' | 'confirm' | 'sending' | 'polling' | 'success' | 'error' | 'unconfirmed'
 
 const ICON_EMOJIS: Record<PaymentLinkIcon, string> = {
     default: '💳',
@@ -37,17 +48,20 @@ const ICON_EMOJIS: Record<PaymentLinkIcon, string> = {
     star: '⭐'
 }
 
-export default function PaymentLink({ network, vfxAddress, account, onSuccess, onBack }: PaymentLinkProps) {
+export default function PaymentLink({ network, vfxAddress, account, sendBlocked = false, onDispatchUncertain, onSuccess, onBack }: PaymentLinkProps) {
     const [step, setStep] = useState<Step>('form')
     const [amount, setAmount] = useState('')
     const [message, setMessage] = useState('')
     const [icon, setIcon] = useState<PaymentLinkIcon>('default')
     const [amountError, setAmountError] = useState('')
-    const [linkData, setLinkData] = useState<CreatePaymentLinkResponse | null>(null)
+    const [quote, setQuote] = useState<PaymentLinkQuote | null>(null)
+    const [link, setLink] = useState<InFlightPaymentLink | null>(null)
     const [finalStatus, setFinalStatus] = useState<PaymentLinkStatus | null>(null)
     const [error, setError] = useState('')
     const [copied, setCopied] = useState(false)
     const [pollingStatus, setPollingStatus] = useState('')
+    const [checking, setChecking] = useState(false)
+    const [confirmForget, setConfirmForget] = useState(false)
     const [vfxPrice, setVfxPrice] = useState<number | null>(null)
 
     const balance = vfxAddress?.balance || 0
@@ -57,100 +71,183 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
         getVfxPrice(network).then(setVfxPrice)
     }, [network])
 
+    // A link from an earlier attempt that was never confirmed funded is shown
+    // first, so its URL is not lost and a second link is not funded blindly.
+    useEffect(() => {
+        getInFlightPaymentLink(network, account.address).then((saved) => {
+            if (saved) {
+                setLink(saved)
+                setStep('unconfirmed')
+            }
+        })
+    }, [network, account.address])
+
     // Calculate USD values and fee
-    const amountNum = parseFloat(amount) || 0
+    const parsedInput = parseAmount(amount)
+    const amountNum = parsedInput.ok ? parsedInput.value : 0
     const usdValue = vfxPrice ? amountNum * vfxPrice : null
     const balanceUsd = vfxPrice ? balance * vfxPrice : null
     // Fee is $0.01 USD converted to VFX
     const feeUsd = 0.01
     const feeVfx = vfxPrice ? feeUsd / vfxPrice : 0.01 // fallback to 0.01 VFX if no price
-    const totalVfx = amountNum + feeVfx
     const totalUsd = usdValue !== null ? usdValue + feeUsd : null
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const saveLink = async (next: InFlightPaymentLink) => {
+        setLink(next)
+        await setInFlightPaymentLink(network, account.address, next)
+    }
+
+    const finishFunded = async (status: PaymentLinkStatus) => {
+        await clearInFlightPaymentLink(network, account.address)
+        setFinalStatus(status)
+        setStep('success')
+    }
+
+    // Continue: create the link (no funds move) and check the server's reply.
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setAmountError('')
 
-        const parsedAmount = parseFloat(amount)
-        if (isNaN(parsedAmount) || parsedAmount <= 0) {
-            setAmountError('Enter a valid amount')
+        if (!parsedInput.ok) {
+            setAmountError(parsedInput.error)
             return
         }
 
         // Check balance including fee
-        if (parsedAmount + feeVfx > balance) {
+        if (parsedInput.units + numberToUnits(feeVfx) > numberToUnits(balance)) {
             setAmountError(`Insufficient balance (includes ~${feeVfx.toFixed(4)} VFX fee)`)
             return
         }
 
-        setStep('confirm')
-    }
-
-    const handleConfirm = async () => {
-        setStep('sending')
+        setStep('preparing')
         setError('')
 
         try {
-            // Step 1: Create payment link
-            console.log('[PaymentLink] Creating payment link...', { network, amount, message, icon })
-            const response = await createPaymentLink(network, amount, message || undefined, icon)
-            console.log('[PaymentLink] Payment link created:', response)
-            setLinkData(response)
-
-            // Step 2: Send VFX to escrow
-            console.log('[PaymentLink] Sending VFX to escrow:', response.escrow_address, 'amount:', response.amount)
-            const client = new VfxClient(network)
-            const kp: Keypair = {
-                address: account.address,
-                privateKey: account.private,
-                publicKey: account.public,
+            const response = await createPaymentLink(network, parsedInput.display, message || undefined, icon)
+            const checked = verifyPaymentLinkQuote(response, parsedInput.units, network, numberToUnits(balance))
+            if (!checked.ok) {
+                setError(`${checked.error}. Nothing was sent.`)
+                setStep('error')
+                return
             }
 
-            const txAmount = parseFloat(response.amount)
-            const hash = await client.sendCoin(kp, response.escrow_address, txAmount)
-            console.log('[PaymentLink] Transaction hash:', hash)
-
-            if (!hash) {
-                throw new Error('Transaction failed - no hash returned')
-            }
-
-            // Step 3: Poll for funding confirmation
-            setStep('polling')
-            setPollingStatus('Waiting for confirmation...')
-            console.log('[PaymentLink] Polling for funding confirmation, link_id:', response.link_id)
-
-            const status = await pollForFunding(
-                response.link_id,
-                (s) => {
-                    console.log('[PaymentLink] Poll status:', s.status, 'short_url:', s.short_url)
-                    setPollingStatus(s.short_url ? 'Link ready!' : 'Waiting for confirmation...')
-                },
-                60,
-                5000
-            )
-
-            console.log('[PaymentLink] Final status:', status)
-            setFinalStatus(status)
-            setStep('success')
-
+            setQuote(checked)
+            setLink({
+                linkId: response.link_id,
+                shortUrl: response.short_url,
+                fullUrl: response.full_url,
+                escrowAddress: checked.escrowAddress,
+                claim: checked.claim,
+                total: checked.total,
+                createdAt: Date.now()
+            })
+            setStep('confirm')
         } catch (err) {
-            console.error('[PaymentLink] Error:', err)
-            setError(err instanceof Error ? err.message : 'Failed to create payment link')
+            console.error('[PaymentLink] Failed to create link:', err)
+            setError(`${err instanceof Error ? err.message : 'Failed to create payment link'}. Nothing was sent.`)
             setStep('error')
         }
     }
 
+    // Create Link: sign exactly the total shown on the confirm screen.
+    const handleConfirm = async () => {
+        if (sendBlocked || !quote?.ok || !link) return
+
+        setStep('sending')
+        setError('')
+        await saveLink(link)
+
+        const client = new VfxClient(network)
+        const kp: Keypair = {
+            address: account.address,
+            privateKey: account.private,
+            publicKey: account.public,
+        }
+
+        let hash: string | null
+        try {
+            hash = await client.sendCoin(kp, quote.escrowAddress, Number(quote.total))
+        } catch (err) {
+            if (err instanceof TransactionDispatchError) {
+                const uncertainLink = { ...link, hash: err.hash, uncertain: true }
+                await saveLink(uncertainLink)
+                await onDispatchUncertain?.(err, uncertainLink)
+                setStep('unconfirmed')
+                return
+            }
+            hash = null
+            console.error('[PaymentLink] Funding failed:', err)
+        }
+
+        if (!hash) {
+            // Definitely not sent: the link stays unfunded and can be dropped.
+            await clearInFlightPaymentLink(network, account.address)
+            setLink(null)
+            setError('Funding transaction failed. Nothing was sent.')
+            setStep('error')
+            return
+        }
+
+        await saveLink({ ...link, hash })
+        setStep('polling')
+        setPollingStatus('Waiting for confirmation...')
+
+        try {
+            const status = await pollForFunding(
+                link.linkId,
+                (s) => setPollingStatus(s.status === 'pending' ? 'Waiting for confirmation...' : 'Link ready!'),
+                60,
+                5000
+            )
+            await finishFunded(status)
+        } catch (err) {
+            console.error('[PaymentLink] Funding not confirmed yet:', err)
+            setError(err instanceof Error ? err.message : 'Funding not confirmed yet')
+            setStep('unconfirmed')
+        }
+    }
+
+    const handleCheckStatus = async () => {
+        if (!link) return
+        setChecking(true)
+        setError('')
+        try {
+            const status = await getPaymentLinkStatus(link.linkId)
+            if (status.status === 'pending' || status.status === 'awaiting_signature') {
+                setError('Not funded yet. Check again in a minute.')
+            } else if (status.status === 'cancelled' || status.status === 'failed') {
+                setError(`This link is ${status.status}.`)
+            } else {
+                await finishFunded(status)
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Could not check the link')
+        } finally {
+            setChecking(false)
+        }
+    }
+
+    const handleForgetLink = async () => {
+        await clearInFlightPaymentLink(network, account.address)
+        setLink(null)
+        setQuote(null)
+        setConfirmForget(false)
+        setError('')
+        setStep('form')
+    }
+
+    const linkUrl = finalStatus?.full_url || link?.fullUrl || ''
+
     const handleCopyLink = () => {
-        const url = finalStatus?.full_url || linkData?.full_url
-        if (url) {
-            copyToClipboard(url)
+        if (linkUrl) {
+            copyToClipboard(linkUrl)
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
         }
     }
 
     const handleShare = async () => {
-        const url = finalStatus?.full_url || linkData?.full_url
+        const url = linkUrl
         if (url && navigator.share) {
             try {
                 await navigator.share({
@@ -191,6 +288,7 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
                         <input
                             id="amount"
                             type="text"
+                            inputMode="decimal"
                             value={amount}
                             onChange={(e) => setAmount(e.target.value)}
                             placeholder="0.00"
@@ -249,13 +347,13 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
         )
     }
 
-    // Confirm Step
-    if (step === 'confirm') {
+    // Confirm Step: everything shown here is what gets signed.
+    if (step === 'confirm' && quote?.ok) {
         return (
             <div className="bg-gray-900 text-white p-6 rounded-2xl space-y-4 max-w-md mx-auto shadow-xl">
                 <div className="text-center">
                     <div className="text-4xl mb-2">{ICON_EMOJIS[icon]}</div>
-                    <div className="text-2xl font-bold">{amount} VFX</div>
+                    <div className="text-2xl font-bold">{quote.claim} VFX</div>
                     {usdValue !== null && (
                         <div className="text-lg text-blue-400">{formatUsd(usdValue)}</div>
                     )}
@@ -266,22 +364,29 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
                     <div className="flex justify-between text-sm">
                         <span className="text-gray-400">Recipient receives</span>
                         <div className="text-right">
-                            <div>{amount} VFX</div>
+                            <div>{quote.claim} VFX</div>
                             {usdValue !== null && <div className="text-xs text-gray-500">{formatUsd(usdValue)}</div>}
                         </div>
                     </div>
                     <div className="flex justify-between text-sm">
                         <span className="text-gray-400">Platform fee</span>
                         <div className="text-right">
-                            <div>~{feeVfx.toFixed(4)} VFX</div>
-                            <div className="text-xs text-gray-500">$0.01</div>
+                            <div>{quote.fee} VFX</div>
+                            <div className="text-xs text-gray-500">~$0.01</div>
                         </div>
                     </div>
                     <div className="border-t border-gray-700 pt-2 flex justify-between">
                         <span className="text-gray-400">You send</span>
                         <div className="text-right">
-                            <div className="font-semibold">~{totalVfx.toFixed(4)} VFX</div>
+                            <div className="font-semibold" data-testid="signed-total">{quote.total} VFX</div>
                             {totalUsd !== null && <div className="text-xs text-gray-500">{formatUsd(totalUsd)}</div>}
+                        </div>
+                    </div>
+                    <div className="border-t border-gray-700 pt-2 text-sm">
+                        <div className="text-gray-400">To escrow address</div>
+                        <div className="font-mono text-xs break-all" data-testid="escrow-address">{quote.escrowAddress}</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                            Held by the payment-link service until the recipient claims it.
                         </div>
                     </div>
                 </div>
@@ -295,9 +400,10 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
                     </button>
                     <button
                         onClick={handleConfirm}
-                        className="flex-1 bg-blue-600 hover:bg-blue-500 font-semibold py-2 rounded-lg transition"
+                        disabled={sendBlocked}
+                        className="flex-1 bg-blue-600 hover:bg-blue-500 font-semibold py-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Create Link
+                        Send {quote.total} VFX
                     </button>
                 </div>
             </div>
@@ -305,7 +411,7 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
     }
 
     // Sending/Polling Step
-    if (step === 'sending' || step === 'polling') {
+    if (step === 'preparing' || step === 'sending' || step === 'polling') {
         return (
             <div className="bg-gray-900 text-white p-6 rounded-2xl space-y-4 max-w-md mx-auto shadow-xl text-center">
                 <div className="flex justify-center">
@@ -315,12 +421,14 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
                     </svg>
                 </div>
                 <div className="text-lg font-semibold">
-                    {step === 'sending' ? 'Creating Payment Link...' : 'Waiting for Confirmation...'}
+                    {step === 'preparing' ? 'Preparing Payment Link...' : step === 'sending' ? 'Funding Payment Link...' : 'Waiting for Confirmation...'}
                 </div>
                 <div className="text-sm text-gray-400">
-                    {step === 'sending'
-                        ? 'Sending transaction to escrow'
-                        : pollingStatus || 'This may take up to 20 seconds'
+                    {step === 'preparing'
+                        ? 'Nothing is sent until you confirm'
+                        : step === 'sending'
+                            ? 'Sending transaction to escrow'
+                            : pollingStatus || 'This may take up to 20 seconds'
                     }
                 </div>
             </div>
@@ -329,7 +437,7 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
 
     // Success Step
     if (step === 'success') {
-        const shortUrl = finalStatus?.short_url || linkData?.short_url || ''
+        const shortUrl = finalStatus?.short_url || link?.shortUrl || ''
         const statusUsdValue = finalStatus?.usd_value ? parseFloat(finalStatus.usd_value) : usdValue
 
         return (
@@ -337,7 +445,7 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
                 <div className="text-center">
                     <div className="text-4xl mb-2">✅</div>
                     <div className="text-xl font-semibold">Payment Link Created!</div>
-                    <div className="text-gray-400 mt-1">{amount} VFX ready to claim</div>
+                    <div className="text-gray-400 mt-1">{finalStatus?.claim_amount || link?.claim || amount} VFX ready to claim</div>
                     {statusUsdValue !== null && (
                         <div className="text-blue-400">{formatUsd(statusUsdValue)}</div>
                     )}
@@ -390,7 +498,7 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
         )
     }
 
-    // Error Step
+    // Error Step: only reached when nothing was sent.
     if (step === 'error') {
         return (
             <div className="bg-gray-900 text-white p-6 rounded-2xl space-y-4 max-w-md mx-auto shadow-xl text-center">
@@ -403,6 +511,81 @@ export default function PaymentLink({ network, vfxAddress, account, onSuccess, o
                 >
                     Try Again
                 </button>
+            </div>
+        )
+    }
+
+    // Funding was attempted but not confirmed. Keep this link in front of
+    // the user instead of offering a new one.
+    if (step === 'unconfirmed' && link) {
+        return (
+            <div data-testid="unconfirmed-link" className="bg-gray-900 text-white p-6 rounded-2xl space-y-4 max-w-md mx-auto shadow-xl">
+                <div className="text-center">
+                    <div className="text-xl font-semibold">Payment link not confirmed yet</div>
+                    <div className="text-sm text-amber-300 mt-1">
+                        {link.uncertain
+                            ? 'The funding transaction may have been sent. Keep this link: if it went through, these funds are claimed with it.'
+                            : link.hash
+                                ? 'The funding transaction was sent. The link becomes claimable once it is confirmed.'
+                                : 'Funding for this link was started but not confirmed. Keep this link until you know whether it was funded.'}
+                    </div>
+                </div>
+
+                <div className="bg-gray-800 rounded-lg p-4 space-y-2 text-sm">
+                    <div>
+                        <div className="text-xs text-gray-400">Link</div>
+                        <div className="break-all text-blue-400" data-testid="unconfirmed-link-url">{link.fullUrl || link.shortUrl}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs text-gray-400">Link ID</div>
+                        <div className="font-mono text-xs break-all">{link.linkId}</div>
+                    </div>
+                    <div>
+                        <div className="text-xs text-gray-400">Amount</div>
+                        <div>{link.total} VFX to <span className="font-mono text-xs break-all">{link.escrowAddress}</span></div>
+                    </div>
+                    {link.hash && (
+                        <div>
+                            <div className="text-xs text-gray-400">Transaction hash</div>
+                            <div className="font-mono text-xs break-all">{link.hash}</div>
+                        </div>
+                    )}
+                </div>
+
+                {error && <div className="text-sm text-gray-400 text-center">{error}</div>}
+
+                <div className="flex gap-3">
+                    <button
+                        onClick={handleCopyLink}
+                        className="flex-1 bg-gray-700 hover:bg-gray-600 font-semibold py-2 rounded-lg transition"
+                    >
+                        {copied ? 'Copied!' : 'Copy Link'}
+                    </button>
+                    <button
+                        onClick={handleCheckStatus}
+                        disabled={checking}
+                        className="flex-1 bg-blue-600 hover:bg-blue-500 font-semibold py-2 rounded-lg transition disabled:opacity-50"
+                    >
+                        {checking ? 'Checking...' : 'Check Status'}
+                    </button>
+                </div>
+
+                {confirmForget ? (
+                    <div className="bg-gray-800 rounded-lg p-3 space-y-2 text-xs text-gray-300">
+                        <p>Only remove this if you have saved the link, or you are sure it was never funded. The wallet will not show it again.</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setConfirmForget(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 py-2 rounded-lg">Keep</button>
+                            <button onClick={handleForgetLink} className="flex-1 bg-red-700 hover:bg-red-600 py-2 rounded-lg">Remove</button>
+                        </div>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setConfirmForget(true)}
+                        className="w-full text-xs text-gray-500 hover:text-gray-300"
+                    >
+                        I've saved this link, remove it
+                    </button>
+                )}
             </div>
         )
     }

@@ -1,5 +1,6 @@
 import { Storage } from "@plasmohq/storage"
 import { Network, Currency, type IBtcKeypair } from "~types/types"
+import type { UncertainSend } from "~lib/dispatchCheck"
 
 
 const storage = new Storage()
@@ -210,4 +211,45 @@ export async function removePendingTransaction(network: Network, address: string
     const existing = await storage.get<{[hash: string]: any}>(key) || {}
     delete existing[hash]
     await storage.set(key, existing)
+}
+
+// A send whose dispatch outcome is unknown (see lib/dispatchCheck.ts).
+// While one is stored, new VFX sends from this address are blocked.
+export async function getUncertainSend(network: Network, address: string): Promise<UncertainSend | null> {
+    return (await storage.get<UncertainSend>(`${network}-${address}-uncertain-send`)) || null
+}
+
+export async function setUncertainSend(send: UncertainSend) {
+    await storage.set(`${send.network}-${send.fromAddress}-uncertain-send`, send)
+}
+
+export async function clearUncertainSend(network: Network, address: string) {
+    await storage.remove(`${network}-${address}-uncertain-send`)
+}
+
+// A payment link whose escrow funding has been attempted but not confirmed.
+// Kept until the link reports funded so its URL is never lost.
+export interface InFlightPaymentLink {
+    linkId: string
+    shortUrl: string
+    fullUrl: string
+    escrowAddress: string
+    claim: string
+    total: string
+    hash?: string
+    // Set when the funding transaction's dispatch outcome is unknown.
+    uncertain?: boolean
+    createdAt: number
+}
+
+export async function getInFlightPaymentLink(network: Network, address: string): Promise<InFlightPaymentLink | null> {
+    return (await storage.get<InFlightPaymentLink>(`${network}-${address}-payment-link-in-flight`)) || null
+}
+
+export async function setInFlightPaymentLink(network: Network, address: string, link: InFlightPaymentLink) {
+    await storage.set(`${network}-${address}-payment-link-in-flight`, link)
+}
+
+export async function clearInFlightPaymentLink(network: Network, address: string) {
+    await storage.remove(`${network}-${address}-payment-link-in-flight`)
 }

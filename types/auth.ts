@@ -9,6 +9,7 @@ export interface KeyShareRequest {
 
 export interface PendingKeyRequest extends KeyShareRequest {
   resolve?: (result: EncryptedKeyResponse) => void
+  windowId?: number
 }
 
 export interface EncryptedKeyResponse {

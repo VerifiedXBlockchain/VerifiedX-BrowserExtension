@@ -22,16 +22,13 @@ function IndexPopup() {
   const [mnemonic, setMnemonic] = useState("")
   const [password, setPassword] = useState("")
   const [account, setAccount] = useState<Account | null>(null)
+  const [keyshareRequestId] = useState(() => new URLSearchParams(window.location.search).get('keyshare'))
   const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home" | "RecoverMnemonic" | "ImportPrivateKey" | "SetupBtc" | "ApproveKeyShare">("Booting")
 
   useEffect(() => {
     const init = async () => {
       const savedNetwork = await getNetwork()
       setNetworkState(savedNetwork)
-
-      // Check if opened for key share approval
-      const urlParams = new URLSearchParams(window.location.search)
-      const keyshareRequestId = urlParams.get('keyshare')
 
       const hasWallet = await hasAnyWallet()
 
@@ -215,7 +212,7 @@ function IndexPopup() {
           network={network}
           onUnlockSuccess={(account) => {
             setAccount(account)
-            setScreen("Home")
+            setScreen(keyshareRequestId ? "ApproveKeyShare" : "Home")
           }}
         />
       )}
@@ -285,10 +282,6 @@ function IndexPopup() {
 
               // Create BTC keypair from VFX private key
               const btcKeypair = createBtcKeypairFromVfx(network, account.private)
-              console.log("Created BTC keypair:", btcKeypair)
-              console.log("VFX Private Key:", account.private)
-              console.log("BTC Private Key:", btcKeypair.privateKey)
-              console.log("BTC WIF:", btcKeypair.wif)
 
               // Get the current global password from background script
               const { mnemonic } = await chrome.runtime.sendMessage({ type: "GET_MNEMONIC" })
@@ -321,8 +314,9 @@ function IndexPopup() {
         />
       )}
 
-      {screen === "ApproveKeyShare" && account && (
+      {screen === "ApproveKeyShare" && account && keyshareRequestId && (
         <ApproveKeyShare
+          requestId={keyshareRequestId}
           network={network}
           account={account}
           onComplete={() => {

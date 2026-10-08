@@ -27,7 +27,10 @@ export interface CreatePaymentLinkResponse {
         chain: string
         token_symbol: string
     }
+    // Total the sender pays: claim_amount + fee_amount
     amount: string
+    claim_amount: string
+    fee_amount: string
     token_symbol: string
     chain: string
 }
@@ -35,7 +38,7 @@ export interface CreatePaymentLinkResponse {
 export interface PaymentLinkStatus {
     uuid: string
     link_id: string
-    status: 'pending' | 'ready_for_redemption' | 'claiming' | 'claimed'
+    status: 'pending' | 'ready_for_redemption' | 'treasury_allocated' | 'awaiting_signature' | 'claiming' | 'claimed' | 'cancelled' | 'failed'
     amount: string
     claim_amount: string
     asset_type: string
@@ -79,8 +82,6 @@ export async function createPaymentLink(
     }
 
     const url = `${API_BASE_URL}/api/butterfly/create/`
-    console.log('[ButterflyAPI] POST', url, body)
-
     const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -89,17 +90,13 @@ export async function createPaymentLink(
         body: JSON.stringify(body)
     })
 
-    console.log('[ButterflyAPI] Response status:', response.status)
-
     if (!response.ok) {
         const errorText = await response.text()
-        console.error('[ButterflyAPI] Error:', errorText)
+        console.error('[ButterflyAPI] Create payment link failed with status', response.status)
         throw new Error(`Failed to create payment link: ${errorText}`)
     }
 
-    const data = await response.json()
-    console.log('[ButterflyAPI] Response data:', data)
-    return data
+    return response.json()
 }
 
 export async function getPaymentLinkStatus(
@@ -114,6 +111,8 @@ export async function getPaymentLinkStatus(
 
     return response.json()
 }
+
+const FUNDED_STATUSES: PaymentLinkStatus['status'][] = ['ready_for_redemption', 'treasury_allocated', 'claiming', 'claimed']
 
 export async function pollForFunding(
     linkId: string,
@@ -130,8 +129,12 @@ export async function pollForFunding(
             onStatusUpdate(status)
         }
 
-        // Check if we have a valid short_url
-        if (status.short_url && status.short_url.length > 0) {
+        // short_url is assigned when the link is created, so it says nothing
+        // about funding; the status leaves 'pending' once the deposit is seen.
+        if (status.status === 'cancelled' || status.status === 'failed') {
+            throw new Error(`Payment link is ${status.status}`)
+        }
+        if (FUNDED_STATUSES.includes(status.status)) {
             return status
         }
 
