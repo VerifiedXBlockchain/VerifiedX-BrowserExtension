@@ -47,7 +47,13 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
     const [uncertainSend, setUncertainSendState] = useState<UncertainSend | null>(null)
     const { message, showToast } = useToast()
 
-    const recordUncertainSend = async (err: TransactionDispatchError, toAddress: string, amount: number, label: string) => {
+    const recordUncertainSend = async (
+        err: TransactionDispatchError,
+        toAddress: string,
+        amount: number,
+        label: string,
+        paymentLink?: UncertainSend["paymentLink"]
+    ) => {
         const record: UncertainSend = {
             hash: err.hash,
             network,
@@ -55,7 +61,8 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             toAddress,
             amount,
             label,
-            recordedAt: Date.now()
+            recordedAt: Date.now(),
+            paymentLink
         }
         await setUncertainSend(record)
         setUncertainSendState(record)
@@ -487,6 +494,15 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                         network={network}
                         vfxAddress={addressDetails}
                         account={account}
+                        sendBlocked={uncertainSend !== null}
+                        onDispatchUncertain={(err, link) =>
+                            recordUncertainSend(err, link.escrowAddress, Number(link.total), "Payment link funding", {
+                                linkId: link.linkId,
+                                shortUrl: link.shortUrl,
+                                fullUrl: link.fullUrl,
+                                escrowAddress: link.escrowAddress
+                            })
+                        }
                         onSuccess={() => {
                             showToast("Payment link created!")
                             setSection("Main")

@@ -226,3 +226,30 @@ export async function setUncertainSend(send: UncertainSend) {
 export async function clearUncertainSend(network: Network, address: string) {
     await storage.remove(`${network}-${address}-uncertain-send`)
 }
+
+// A payment link whose escrow funding has been attempted but not confirmed.
+// Kept until the link reports funded so its URL is never lost.
+export interface InFlightPaymentLink {
+    linkId: string
+    shortUrl: string
+    fullUrl: string
+    escrowAddress: string
+    claim: string
+    total: string
+    hash?: string
+    // Set when the funding transaction's dispatch outcome is unknown.
+    uncertain?: boolean
+    createdAt: number
+}
+
+export async function getInFlightPaymentLink(network: Network, address: string): Promise<InFlightPaymentLink | null> {
+    return (await storage.get<InFlightPaymentLink>(`${network}-${address}-payment-link-in-flight`)) || null
+}
+
+export async function setInFlightPaymentLink(network: Network, address: string, link: InFlightPaymentLink) {
+    await storage.set(`${network}-${address}-payment-link-in-flight`, link)
+}
+
+export async function clearInFlightPaymentLink(network: Network, address: string) {
+    await storage.remove(`${network}-${address}-payment-link-in-flight`)
+}
