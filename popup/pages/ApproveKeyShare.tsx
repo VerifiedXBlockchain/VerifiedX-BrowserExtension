@@ -4,12 +4,14 @@ import type { KeyShareRequest } from "~types/auth"
 import { encryptKeyForExport } from "~lib/keyEncryption"
 
 interface ApproveKeyShareProps {
+  // The request this popup window was opened for; it never acts on another.
+  requestId: string
   network: Network
   account: Account
   onComplete: () => void
 }
 
-export default function ApproveKeyShare({ network, account, onComplete }: ApproveKeyShareProps) {
+export default function ApproveKeyShare({ requestId, network, account, onComplete }: ApproveKeyShareProps) {
   const [request, setRequest] = useState<KeyShareRequest | null>(null)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
@@ -20,13 +22,15 @@ export default function ApproveKeyShare({ network, account, onComplete }: Approv
     // Fetch pending request from background
     const fetchRequest = async () => {
       const response = await chrome.runtime.sendMessage({
-        type: 'KEY_GET_PENDING_REQUEST'
+        type: 'KEY_GET_PENDING_REQUEST',
+        requestId
       })
-      setRequest(response.request)
+      // Defensive: only ever act on the request this window was opened for
+      setRequest(response.request?.id === requestId ? response.request : null)
       setLoading(false)
     }
     fetchRequest()
-  }, [])
+  }, [requestId])
 
   const handleApprove = async () => {
     if (!request) return
@@ -43,7 +47,7 @@ export default function ApproveKeyShare({ network, account, onComplete }: Approv
       const encryptedData = await encryptKeyForExport(account.private, password)
 
       // Send approval with encrypted data
-      await chrome.runtime.sendMessage({
+      const result = await chrome.runtime.sendMessage({
         type: 'KEY_APPROVAL_RESULT',
         requestId: request.id,
         approved: true,
@@ -53,6 +57,12 @@ export default function ApproveKeyShare({ network, account, onComplete }: Approv
           publicKey: account.public
         }
       })
+
+      if (!result?.success) {
+        setError("This request has expired or was already answered.")
+        setProcessing(false)
+        return
+      }
 
       // Close the popup window
       window.close()
@@ -87,7 +97,7 @@ export default function ApproveKeyShare({ network, account, onComplete }: Approv
   if (!request) {
     return (
       <div className="flex flex-col p-6 text-white">
-        <p className="text-center text-gray-400">No pending requests</p>
+        <p className="text-center text-gray-400">This request has expired or was already answered.</p>
         <button
           onClick={() => window.close()}
           className="mt-4 bg-gray-700 hover:bg-gray-600 p-3 rounded font-semibold"
@@ -117,7 +127,7 @@ export default function ApproveKeyShare({ network, account, onComplete }: Approv
       {/* Origin Badge */}
       <div className="bg-gray-800 rounded-lg p-4">
         <p className="text-xs text-gray-400 mb-1">Requesting site:</p>
-        <p className="text-lg font-mono break-all">{formatOrigin(request.origin)}</p>
+        <p className="text-lg font-mono break-all" data-testid="request-origin">{formatOrigin(request.origin)}</p>
         <p className="text-xs text-gray-500 mt-1 break-all">{request.origin}</p>
       </div>
 
