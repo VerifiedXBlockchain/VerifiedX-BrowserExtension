@@ -35,6 +35,11 @@ window.addEventListener('message', async (event) => {
 
   const { type, requestId } = event.data || {}
 
+  if (type === 'VERIFIEDX_PROVIDER_REQUEST') {
+    relayProviderRequest(requestId, event.data.method, event.data.params)
+    return
+  }
+
   // Only handle our message types
   if (type !== 'VERIFIEDX_REQUEST_KEY') return
 
@@ -61,3 +66,21 @@ window.addEventListener('message', async (event) => {
     }, '*')
   }
 })
+
+// Provider requests (window.verifiedX.request). Only the method name and
+// params are forwarded; the background works out the origin itself.
+async function relayProviderRequest(requestId: unknown, method: unknown, params: unknown) {
+  if (typeof requestId !== 'string') return
+  let payload: unknown
+  try {
+    payload = await chrome.runtime.sendMessage({
+      type: 'PROVIDER_REQUEST',
+      method: typeof method === 'string' ? method : null,
+      params: params === undefined ? null : params
+    })
+  } catch (error) {
+    console.error('VerifiedX content script error:', error)
+    payload = { ok: false, error: { code: -32603, message: 'Extension error' } }
+  }
+  window.postMessage({ type: 'VERIFIEDX_PROVIDER_RESPONSE', requestId, payload }, '*')
+}

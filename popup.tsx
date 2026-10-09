@@ -6,6 +6,7 @@ import SetupWallet from "~popup/pages/SetupWallet"
 import BackupMnemonic from "~popup/pages/BackupMnemonic"
 import SetupBtc from "~popup/pages/SetupBtc"
 import ApproveKeyShare from "~popup/pages/ApproveKeyShare"
+import ApproveRequest from "~popup/pages/ApproveRequest"
 import { isWalletCreated, hasAnyWallet, getNetwork, setNetwork, clearWallet, encryptBtcKeypair } from "~lib/secureStorage"
 import Home from "~popup/pages/Home"
 import Unlock from "~popup/pages/Unlock"
@@ -23,7 +24,12 @@ function IndexPopup() {
   const [password, setPassword] = useState("")
   const [account, setAccount] = useState<Account | null>(null)
   const [keyshareRequestId] = useState(() => new URLSearchParams(window.location.search).get('keyshare'))
-  const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home" | "RecoverMnemonic" | "ImportPrivateKey" | "SetupBtc" | "ApproveKeyShare">("Booting")
+  const [providerRequestId] = useState(() => new URLSearchParams(window.location.search).get('request'))
+  const [screen, setScreen] = useState<"Booting" | "SetupWallet" | "BackupMnemonic" | "Unlock" | "Home" | "RecoverMnemonic" | "ImportPrivateKey" | "SetupBtc" | "ApproveKeyShare" | "ApproveRequest">("Booting")
+
+  // A popup opened for a site's request goes straight to that request once
+  // the wallet is unlocked.
+  const unlockedScreen = () => providerRequestId ? "ApproveRequest" : keyshareRequestId ? "ApproveKeyShare" : "Home"
 
   useEffect(() => {
     const init = async () => {
@@ -52,12 +58,7 @@ function IndexPopup() {
 
         setAccount(account)
 
-        // Check for pending key share request
-        if (keyshareRequestId) {
-          setScreen("ApproveKeyShare")
-        } else {
-          setScreen("Home")
-        }
+        setScreen(unlockedScreen())
       } else {
         setScreen("Unlock")
       }
@@ -104,6 +105,8 @@ function IndexPopup() {
   const handleEjectWallet = async () => {
     await clearWallet(network)
     await chrome.runtime.sendMessage({ type: "LOCK_WALLET" })
+    // Connected sites were approved for the wallet just removed
+    await chrome.runtime.sendMessage({ type: "PROVIDER_CLEAR_CONNECTIONS" })
     setAccount(null)
     setScreen("SetupWallet")
   }
@@ -161,9 +164,11 @@ function IndexPopup() {
     <div className="relative bg-gray-950 w-96 text-white">
       {screen !== "Home" && (
         <>
-          <div className="absolute top-3 right-3 text-xs z-10">
-            <NetworkToggle network={network} onNetworkChange={handleSetupNetworkChange} />
-          </div>
+          {!providerRequestId && !keyshareRequestId && (
+            <div className="absolute top-3 right-3 text-xs z-10">
+              <NetworkToggle network={network} onNetworkChange={handleSetupNetworkChange} />
+            </div>
+          )}
           <div className="flex justify-center items-center flex-col pt-4">
             <img src={cube} width={64} height={64} />
             <div className="pt-1" />
@@ -212,7 +217,7 @@ function IndexPopup() {
           network={network}
           onUnlockSuccess={(account) => {
             setAccount(account)
-            setScreen(keyshareRequestId ? "ApproveKeyShare" : "Home")
+            setScreen(unlockedScreen())
           }}
         />
       )}
@@ -324,6 +329,10 @@ function IndexPopup() {
             window.close()
           }}
         />
+      )}
+
+      {screen === "ApproveRequest" && account && providerRequestId && (
+        <ApproveRequest requestId={providerRequestId} network={network} account={account} />
       )}
     </div>
   )

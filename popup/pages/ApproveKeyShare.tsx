@@ -120,6 +120,23 @@ export default function ApproveKeyShare({ requestId, network, account, onComplet
     )
   }
 
+  if (request.network !== network) {
+    return (
+      <div className="flex flex-col p-6 text-white space-y-4">
+        <p className="text-center text-amber-300" data-testid="network-mismatch">
+          This site uses {request.network}, but the wallet is on {network}. Switch networks and try again.
+        </p>
+        <button
+          onClick={handleDeny}
+          disabled={processing}
+          className="bg-gray-700 hover:bg-gray-600 p-3 rounded font-semibold disabled:opacity-50"
+        >
+          Close
+        </button>
+      </div>
+    )
+  }
+
   const formatOrigin = (origin: string) => {
     try {
       const url = new URL(origin)

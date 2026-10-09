@@ -1,8 +1,12 @@
 // Types for website authentication / key sharing
 
+import type { Network } from "~types/types"
+
 export interface KeyShareRequest {
   id: string
   origin: string
+  // The only network whose key this origin may receive.
+  network: Network
   timestamp: number
   tabId: number
 }
