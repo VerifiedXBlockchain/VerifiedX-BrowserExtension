@@ -1,6 +1,7 @@
 import { Storage } from "@plasmohq/storage"
 import { Network, Currency, type IBtcKeypair } from "~types/types"
 import type { UncertainSend } from "~lib/dispatchCheck"
+import type { UncertainBtcSend } from "~lib/btcSendCheck"
 
 
 const storage = new Storage()
@@ -225,6 +226,20 @@ export async function setUncertainSend(send: UncertainSend) {
 
 export async function clearUncertainSend(network: Network, address: string) {
     await storage.remove(`${network}-${address}-uncertain-send`)
+}
+
+// A BTC send whose broadcast outcome is unknown (see lib/btcSendCheck.ts).
+// While one is stored, new BTC sends from this account are blocked.
+export async function getUncertainBtcSend(network: Network, accountAddress: string): Promise<UncertainBtcSend | null> {
+    return (await storage.get<UncertainBtcSend>(`${network}-${accountAddress}-uncertain-btc-send`)) || null
+}
+
+export async function setUncertainBtcSend(send: UncertainBtcSend) {
+    await storage.set(`${send.network}-${send.accountAddress}-uncertain-btc-send`, send)
+}
+
+export async function clearUncertainBtcSend(network: Network, accountAddress: string) {
+    await storage.remove(`${network}-${accountAddress}-uncertain-btc-send`)
 }
 
 // A payment link whose escrow funding has been attempted but not confirmed.

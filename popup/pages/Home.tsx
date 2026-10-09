@@ -1,6 +1,6 @@
 // popup/pages/Home.tsx
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { copyToClipboard } from "~lib/utils" // you'll make this helper
 import type { Account, Keypair, VfxAddress, IBtcKeypair, IAccountInfo } from "~types/types"
 import { Network, Currency } from "~types/types"
@@ -13,9 +13,20 @@ import Toast from "~lib/components/Toast"
 import { VfxClient, btc, TransactionDispatchError } from 'vfx-web-sdk'
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
-import { addPendingTransaction, clearUncertainSend, decryptBtcKeypair, getUncertainSend, setUncertainSend } from "~lib/secureStorage"
+import {
+    addPendingTransaction,
+    clearUncertainBtcSend,
+    clearUncertainSend,
+    decryptBtcKeypair,
+    getUncertainBtcSend,
+    getUncertainSend,
+    setUncertainBtcSend,
+    setUncertainSend
+} from "~lib/secureStorage"
 import { checkDispatchOutcome, type UncertainSend } from "~lib/dispatchCheck"
+import { resolveUncertainBtcSend, unknownBtcBroadcast, type BtcBroadcaster, type UncertainBtcSend } from "~lib/btcSendCheck"
 import UncertainSendNotice from "~lib/components/UncertainSendNotice"
+import UncertainBtcSendNotice from "~lib/components/UncertainBtcSendNotice"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import CurrencyToggle from "~lib/components/CurrencyToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
@@ -45,6 +56,8 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
     const [btcDomain, setBtcDomain] = useState<string | null>(null);
     const [section, setSection] = useState<"Main" | "Send" | "Receive" | "Transactions" | "ExportKey" | "EjectWallet" | "PaymentLink">("Main")
     const [uncertainSend, setUncertainSendState] = useState<UncertainSend | null>(null)
+    const [uncertainBtcSend, setUncertainBtcSendState] = useState<UncertainBtcSend | null>(null)
+    const btcCheckInFlight = useRef(false)
     const { message, showToast } = useToast()
 
     const recordUncertainSend = async (
@@ -100,6 +113,56 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
 
         resolve()
         const interval = setInterval(resolve, 10_000)
+        return () => {
+            cancelled = true
+            clearInterval(interval)
+        }
+    }, [account?.address, network])
+
+    // Load any BTC send whose broadcast outcome is unknown and keep resolving
+    // it (see lib/btcSendCheck.ts) until it is found or can no longer confirm.
+    useEffect(() => {
+        if (!account?.address) return
+        let cancelled = false
+
+        const resolve = async () => {
+            if (btcCheckInFlight.current) return
+            btcCheckInFlight.current = true
+            try {
+                const record = await getUncertainBtcSend(network, account.address)
+                if (cancelled) return
+                setUncertainBtcSendState(record)
+                if (!record) return
+
+                const client = new btc.BtcClient(network === Network.Mainnet ? "mainnet" : "testnet") as unknown as BtcBroadcaster
+                if (typeof client.checkBroadcast !== "function") return
+
+                const result = await resolveUncertainBtcSend(record, client)
+                if (result.outcome === "pending") {
+                    if (result.record !== record) {
+                        await setUncertainBtcSend(result.record)
+                        if (!cancelled) setUncertainBtcSendState(result.record)
+                    }
+                    return
+                }
+
+                await clearUncertainBtcSend(network, account.address)
+                if (cancelled) return
+                setUncertainBtcSendState(null)
+                if (result.outcome === "sent") {
+                    showToast("BTC send found on the network")
+                    fetchBtcDetails()
+                } else {
+                    console.warn(`BTC send ${record.txid} was not sent: ${result.reason}`)
+                    showToast("BTC send did not go through. You can send again.")
+                }
+            } finally {
+                btcCheckInFlight.current = false
+            }
+        }
+
+        resolve()
+        const interval = setInterval(resolve, 30_000)
         return () => {
             cancelled = true
             clearInterval(interval)
@@ -193,20 +256,37 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
         }
     }
 
-    const handleSendBtc = async (toAddress: string, amount: number): Promise<string | null> => {
+    const handleSendBtc = async (toAddress: string, amount: number): Promise<SendResult> => {
         try {
             if (!btcKeypair) {
                 console.error("No BTC keypair available")
-                return null;
+                return { status: "failed" };
             }
 
             const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
             // sendBtc takes the amount in BTC and converts to satoshis itself.
-            return await btcClient.sendBtc(btcKeypair.wif, toAddress, amount);
+            const hash = await btcClient.sendBtc(btcKeypair.wif, toAddress, amount);
+            return hash ? { status: "sent", hash } : { status: "failed" };
 
         } catch (err) {
+            const unanswered = unknownBtcBroadcast(err)
+            if (unanswered) {
+                console.error("BTC broadcast outcome unknown:", err)
+                const record: UncertainBtcSend = {
+                    ...unanswered,
+                    network,
+                    accountAddress: account.address,
+                    btcAddress: btcKeypair.address || btcKeypair.addresses?.bech32 || "",
+                    toAddress,
+                    amount,
+                    recordedAt: Date.now()
+                }
+                await setUncertainBtcSend(record)
+                setUncertainBtcSendState(record)
+                return { status: "uncertain", hash: unanswered.txid };
+            }
             console.error("❌ FAILED TO SEND BTC:", err)
-            return null;
+            return { status: "failed" };
         }
     }
 
@@ -357,6 +437,11 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                                 <UncertainSendNotice send={uncertainSend} />
                             </div>
                         )}
+                        {currency === Currency.BTC && uncertainBtcSend && (
+                            <div className="pb-3">
+                                <UncertainBtcSendNotice send={uncertainBtcSend} />
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-3 gap-3">
                             <button className={`${currency === Currency.VFX ? 'bg-blue-600 hover:bg-blue-500' : 'bg-orange-600 hover:bg-orange-500'} p-3 rounded-lg font-semibold`} onClick={() => setSection("Send")}>
@@ -406,13 +491,14 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             {section == "Send" && (
                 <div className="p-3 space-y-3">
                     {currency === Currency.VFX && uncertainSend && <UncertainSendNotice send={uncertainSend} />}
+                    {currency === Currency.BTC && uncertainBtcSend && <UncertainBtcSendNotice send={uncertainBtcSend} />}
                     <SendForm
                         currency={currency}
                         network={network}
                         vfxAddress={addressDetails}
                         btcKeypair={btcKeypair}
                         btcAccountInfo={btcAccountInfo}
-                        sendBlocked={currency === Currency.VFX && uncertainSend !== null}
+                        sendBlocked={currency === Currency.VFX ? uncertainSend !== null : uncertainBtcSend !== null}
                         onSubmit={async (toAddress, amount) => {
                             if (currency === Currency.VFX) {
                                 const result = await handleSendCoin(toAddress, amount);
@@ -426,13 +512,14 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                                 return
                             }
 
-                            const hash = await handleSendBtc(toAddress, amount);
-                            if (hash != null) {
+                            const result = await handleSendBtc(toAddress, amount);
+                            if (result.status === "sent") {
                                 showToast("Transaction sent!")
                                 setSection("Main");
-                            } else {
+                            } else if (result.status === "failed") {
                                 showToast("Transaction failed.")
                             }
+                            // "uncertain": stay here; the notice above explains and Send stays disabled
                         }}
                         onCreatePaymentLink={() => setSection("PaymentLink")}
                     />
