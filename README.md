@@ -2,7 +2,7 @@ This is a [Plasmo extension](https://docs.plasmo.com/) project bootstrapped with
 
 ## Provider API
 
-The extension injects `window.verifiedX` into every http(s) page. A site asks for an account or a signature; the user approves each request in an extension popup; the extension signs with the key it holds and returns only the result. Sites never receive key material.
+The extension injects `window.verifiedX` into every http(s) page. A site asks for an account or a signature, and the user approves each request in an extension popup. The extension signs with the key it holds and returns only the result. Sites never receive key material, apart from the VerifiedX web wallet's key export described below.
 
 Types for everything below are in [`types/verifiedx-provider.d.ts`](types/verifiedx-provider.d.ts).
 
@@ -77,6 +77,19 @@ Rejected promises carry `error.code`:
 | -32603 | Internal error; for example, the network refused the transaction before it was sent |
 
 Each site can have one request waiting at a time. Each popup is bound to one request and shows the requesting origin as reported by the browser.
+
+### Key export (VerifiedX web wallet only)
+
+`window.verifiedX.requestKey()` returns the wallet's private key, encrypted with a password the user enters in the popup. Only the VerifiedX web wallet can use it, and only for its own network:
+
+| Origin | Network |
+|---|---|
+| `https://wallet.verifiedx.io` | mainnet |
+| `https://wallet-testnet.verifiedx.io` | testnet |
+
+Origins must match exactly: scheme, host and port, with no subdomains. The extension takes the origin from the browser, not from the page. Any other site gets an error immediately and no popup opens. If the extension is on the other network, the request is refused as well. The BTC wallet is derived from the same key, so the popup warns that exporting the key also gives access to the BTC.
+
+Every other site uses `connect()` and the signing methods above.
 
 ### Bitcoin
 

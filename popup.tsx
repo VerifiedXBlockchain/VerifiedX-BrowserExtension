@@ -164,7 +164,7 @@ function IndexPopup() {
     <div className="relative bg-gray-950 w-96 text-white">
       {screen !== "Home" && (
         <>
-          {!providerRequestId && (
+          {!providerRequestId && !keyshareRequestId && (
             <div className="absolute top-3 right-3 text-xs z-10">
               <NetworkToggle network={network} onNetworkChange={handleSetupNetworkChange} />
             </div>

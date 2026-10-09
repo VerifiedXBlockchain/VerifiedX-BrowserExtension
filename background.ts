@@ -1,6 +1,7 @@
 // background.ts
 
 import type { PendingKeyRequest, EncryptedKeyResponse } from "~types/auth"
+import { checkKeyShareOrigin } from "~lib/keyShareOrigins"
 import { ConnectionStore } from "~lib/provider/connections"
 import { ProviderHandler } from "~lib/provider/handler"
 import { ProviderRequestQueue } from "~lib/provider/requests"
@@ -140,7 +141,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const pending = getLiveRequest(message.requestId)
         sendResponse({
             request: pending
-                ? { id: pending.id, origin: pending.origin, timestamp: pending.timestamp, tabId: pending.tabId }
+                ? { id: pending.id, origin: pending.origin, network: pending.network, timestamp: pending.timestamp, tabId: pending.tabId }
                 : null
         })
     }
@@ -150,8 +151,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: false })
             return
         }
-        const handled = handleKeyApprovalResult(message.requestId, message.approved, message.encryptedData)
-        sendResponse({ success: handled })
+        handleKeyApprovalResult(message.requestId, message.approved, message.encryptedData).then((handled) =>
+            sendResponse({ success: handled })
+        )
+        return true
     }
 
     return true // allow async sendResponse
@@ -197,6 +200,13 @@ async function handleKeyShareRequest(sender: chrome.runtime.MessageSender): Prom
         return { success: false, error: 'Invalid request' }
     }
 
+    // Only the VerifiedX web wallet, and only for its own network. Anyone
+    // else is refused here, before a popup opens.
+    const allowed = checkKeyShareOrigin(origin, await getNetwork())
+    if (!allowed.ok) {
+        return { success: false, error: allowed.error }
+    }
+
     // Check if wallet is unlocked
     const now = Date.now()
     if (!decryptedMnemonic || now >= unlockUntil) {
@@ -214,6 +224,7 @@ async function handleKeyShareRequest(sender: chrome.runtime.MessageSender): Prom
     const request: PendingKeyRequest = {
         id: crypto.randomUUID(),
         origin,
+        network: allowed.network,
         timestamp: now,
         tabId: sender.tab.id ?? 0
     }
@@ -248,15 +259,25 @@ chrome.windows.onRemoved.addListener((windowId) => {
     })
 })
 
-function handleKeyApprovalResult(
+async function handleKeyApprovalResult(
     requestId: string,
     approved: boolean,
     encryptedData?: { salt: number[]; iv: number[]; cipherText: number[]; address: string; publicKey: string }
-): boolean {
+): Promise<boolean> {
     const request = getLiveRequest(requestId)
     if (!request) return false
 
     if (approved && encryptedData) {
+        // The key handed over must be the one for the origin's network: the
+        // extension must still be on that network, and the address must be
+        // that network's address for the unlocked key.
+        const key = decryptedMnemonic !== null && Date.now() < unlockUntil ? decryptedMnemonic : null
+        const activeNetwork = await getNetwork()
+        const expected = key && activeNetwork === request.network ? createAccountFromSecret(request.network, key) : null
+        if (!expected || encryptedData.address !== expected.address) {
+            settleRequest(request, { success: false, error: 'The wallet is not on this site\'s network' })
+            return true
+        }
         settleRequest(request, {
             success: true,
             salt: encryptedData.salt,

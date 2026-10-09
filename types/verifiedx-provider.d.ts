@@ -111,6 +111,12 @@ export interface VerifiedXProvider {
     signMessage(message: string): Promise<VerifiedXSignMessageResult>
     signTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSignTransactionResult>
     sendTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSendTransactionResult>
+    /**
+     * VerifiedX web wallet only (https://wallet.verifiedx.io for mainnet,
+     * https://wallet-testnet.verifiedx.io for testnet). Rejects for any other
+     * origin without opening a popup.
+     */
+    requestKey(): Promise<{ salt: number[]; iv: number[]; cipherText: number[]; address: string; publicKey: string }>
 }
 
 declare global {
