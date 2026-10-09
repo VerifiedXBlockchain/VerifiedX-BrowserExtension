@@ -200,16 +200,9 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 return null;
             }
 
-            // Convert BTC amount to satoshis
-            const amountInSatoshis = Math.round(amount * 100000000);
-
-
-
             const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
-            const hash = await btcClient.sendBtc(btcKeypair.wif, toAddress, amountInSatoshis);
-
-
-            return hash;
+            // sendBtc takes the amount in BTC and converts to satoshis itself.
+            return await btcClient.sendBtc(btcKeypair.wif, toAddress, amount);
 
         } catch (err) {
             console.error("❌ FAILED TO SEND BTC:", err)
@@ -437,6 +430,8 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                             if (hash != null) {
                                 showToast("Transaction sent!")
                                 setSection("Main");
+                            } else {
+                                showToast("Transaction failed.")
                             }
                         }}
                         onCreatePaymentLink={() => setSection("PaymentLink")}
