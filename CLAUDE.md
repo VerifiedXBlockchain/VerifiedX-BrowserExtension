@@ -27,7 +27,7 @@ Load the development build from `build/chrome-mv3-dev` in your browser's extensi
 **Main Entry Points:**
 - `popup.tsx` - Main popup UI with state machine for different screens (SetupWallet, Unlock, Home, etc.)
 - `background.ts` - Service worker handling wallet unlock state and mnemonic storage in memory
-- `content.ts` - Content script (minimal, currently empty)
+- `content.ts` - Content script: injects `assets/inpage.js` (the `window.verifiedX` provider) and relays its requests to the background
 
 **Key Directories:**
 - `popup/pages/` - Individual screen components (SetupWallet, Home, Unlock, etc.)
@@ -94,6 +94,8 @@ const response = await chrome.runtime.sendMessage({ type: "MESSAGE_TYPE" })
 ```
 
 Available message types: `UNLOCK_WALLET`, `IS_UNLOCKED`, `GET_MNEMONIC`, `LOCK_WALLET`, `RESET_UNLOCK_TIMER`
+
+Website requests (`window.verifiedX`, see "Provider API" in README.md) use `PROVIDER_REQUEST` (content script only), and `PROVIDER_GET_REQUEST`, `PROVIDER_APPROVAL_RESULT` and `PROVIDER_CLEAR_CONNECTIONS` (extension pages only). The logic lives in `lib/provider/`; the approval screen is `popup/pages/ApproveRequest.tsx`.
 
 ## BTC Integration Architecture
 
