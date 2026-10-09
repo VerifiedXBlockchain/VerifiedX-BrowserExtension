@@ -15,7 +15,7 @@
     "plasmo": "0.90.5",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "vfx-web-sdk": "^3.4.1"
+    "vfx-web-sdk": "^3.6.0"
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "4.1.1",
@@ -44,8 +44,12 @@
     ],
     "web_accessible_resources": [
       {
-        "resources": ["assets/inpage.js"],
-        "matches": ["<all_urls>"]
+        "resources": [
+          "assets/inpage.js"
+        ],
+        "matches": [
+          "<all_urls>"
+        ]
       }
     ]
   }
