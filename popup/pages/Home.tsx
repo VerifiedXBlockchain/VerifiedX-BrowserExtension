@@ -10,7 +10,7 @@ import SendForm from "~lib/components/SendForm"
 import TransactionList from "~lib/components/TransactionList"
 import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
-import { VfxClient, btc, TransactionDispatchError } from 'vfx-web-sdk'
+import { VfxClient, btc, TransactionDispatchError, TxType } from 'vfx-web-sdk'
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
 import {
@@ -27,6 +27,8 @@ import { checkDispatchOutcome, type UncertainSend } from "~lib/dispatchCheck"
 import { resolveUncertainBtcSend, unknownBtcBroadcast, type BtcBroadcaster, type UncertainBtcSend } from "~lib/btcSendCheck"
 import UncertainSendNotice from "~lib/components/UncertainSendNotice"
 import UncertainBtcSendNotice from "~lib/components/UncertainBtcSendNotice"
+import type { TransactionRequest } from "~lib/provider/protocol"
+import { broadcastTransaction, prepareTransaction, signPreparedTransaction, TransactionRefusedError } from "~lib/vfxTransaction"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import CurrencyToggle from "~lib/components/CurrencyToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
@@ -37,7 +39,8 @@ import PaymentLink from "~lib/components/PaymentLink"
 type SendResult =
     | { status: "sent"; hash: string }
     | { status: "uncertain"; hash: string }
-    | { status: "failed" }
+    // reason: the node's own explanation, when it refused the send
+    | { status: "failed"; reason?: string }
 
 interface HomeProps {
     network: Network
@@ -209,41 +212,33 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
 
     const handleSendCoin = async (toAddress: string, amount: number): Promise<SendResult> => {
         try {
-            const client = new VfxClient(network);
-            const kp: Keypair = {
-                address: account.address,
-                privateKey: account.private,
-                publicKey: account.public,
-            }
-
-            const hash = await client.sendCoin(kp, toAddress, amount)
+            const request: TransactionRequest = { to: toAddress, amount: String(amount), type: TxType.RbxTransfer, data: null }
+            const prepared = await prepareTransaction(network, account.address, request)
+            const signed = await signPreparedTransaction(prepared, account.private)
+            const hash = await broadcastTransaction(network, signed)
 
             // Create pending transaction immediately
-            if (hash) {
-                const pendingTx = {
-                    hash: hash,
-                    height: -1, // Use -1 to indicate pending
-                    type: 1, // Assuming 1 is send type
-                    type_label: "Tx",
-                    to_address: toAddress,
-                    from_address: account.address,
-                    total_amount: amount,
-                    total_fee: 0.0001, // Estimated fee
-                    data: null,
-                    date_crafted: new Date().toISOString(),
-                    signature: "",
-                    nft: null,
-                    unlock_time: null,
-                    callback_details: null,
-                    recovery_details: null,
-                    isPending: true // Flag to indicate this is pending
-                }
-
-                await addPendingTransaction(network, account.address, pendingTx)
-                return { status: "sent", hash }
+            const pendingTx = {
+                hash: hash,
+                height: -1, // Use -1 to indicate pending
+                type: 1, // Assuming 1 is send type
+                type_label: "Tx",
+                to_address: toAddress,
+                from_address: account.address,
+                total_amount: amount,
+                total_fee: signed.Fee,
+                data: null,
+                date_crafted: new Date().toISOString(),
+                signature: "",
+                nft: null,
+                unlock_time: null,
+                callback_details: null,
+                recovery_details: null,
+                isPending: true // Flag to indicate this is pending
             }
 
-            return { status: "failed" }
+            await addPendingTransaction(network, account.address, pendingTx)
+            return { status: "sent", hash }
 
         } catch (err) {
             if (err instanceof TransactionDispatchError) {
@@ -252,6 +247,9 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 return { status: "uncertain", hash: err.hash }
             }
             console.error("Failed to send coin:", err)
+            if (err instanceof TransactionRefusedError && err.nodeMessage) {
+                return { status: "failed", reason: err.nodeMessage }
+            }
             return { status: "failed" }
         }
     }
@@ -506,7 +504,9 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                                     showToast("Transaction sent!")
                                     setSection("Main");
                                 } else if (result.status === "failed") {
-                                    showToast("Transaction failed. Nothing was sent.")
+                                    showToast(result.reason
+                                        ? `Nothing was sent. The network refused it: ${result.reason}`
+                                        : "Transaction failed. Nothing was sent.")
                                 }
                                 // "uncertain": stay here; the notice above explains and Send stays disabled
                                 return

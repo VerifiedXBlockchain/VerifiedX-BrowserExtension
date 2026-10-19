@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { validateTransactionParams } from "~lib/provider/protocol"
 import { createAccountFromSecret } from "~lib/utils"
-import { broadcastTransaction, prepareTransaction, signPreparedTransaction } from "~lib/vfxTransaction"
+import { broadcastTransaction, prepareTransaction, signPreparedTransaction, TransactionRefusedError } from "~lib/vfxTransaction"
 import { Network } from "~types/types"
 
 const client = new VfxClient(Network.Testnet)
@@ -105,6 +105,24 @@ describe("signPreparedTransaction", () => {
         ).rejects.toThrow(/transaction/)
     })
 
+    // VerifyRawTransaction's refusal (TXV1Controller.cs): balance, bonded stake,
+    // frozen address and cross-network recipient all fail here, before /send/.
+    it("carries the node's reason when verify refuses", async () => {
+        const prepared = await prepareTransaction(Network.Testnet, ACCOUNT.address, request(), fakeNode().fn)
+        const message = "Transaction was not verified. Error: Insufficient Balance."
+        const node = fakeNode({ "/raw/verify/": { status: 200, text: JSON.stringify({ Result: "Fail", Message: message }) } })
+        const err = await signPreparedTransaction(prepared, PRIVATE_KEY, node.fn).catch((e) => e)
+        expect(err).toBeInstanceOf(TransactionRefusedError)
+        expect(err.nodeMessage).toBe(message)
+        expect(err.message).toBe(`The network refused the transaction: ${message}`)
+        expect(node.calls.some((c) => c.url.includes("/raw/send/"))).toBe(false)
+
+        const silent = await signPreparedTransaction(prepared, PRIVATE_KEY, fakeNode({ "/raw/verify/": { status: 200, text: "{}" } }).fn).catch((e) => e)
+        expect(silent).toBeInstanceOf(TransactionRefusedError)
+        expect(silent.nodeMessage).toBeNull()
+        expect(silent.message).toBe("The network rejected the transaction")
+    })
+
     it("refuses to sign for a different account", async () => {
         const prepared = await prepareTransaction(Network.Testnet, ACCOUNT.address, request(), fakeNode().fn)
         await expect(signPreparedTransaction(prepared, client.generatePrivateKey(), fakeNode().fn)).rejects.toThrow(/account/)
@@ -136,6 +154,47 @@ describe("broadcastTransaction", () => {
             fakeNode({ "/raw/send/": { status: 200, text: JSON.stringify({ Result: "Fail" }) } }).fn
         ).catch((e) => e)
         expect(err).not.toBeInstanceOf(TransactionDispatchError)
+        expect(err).toBeInstanceOf(TransactionRefusedError)
+        expect(err.nodeMessage).toBeNull()
         expect(err.message).toMatch(/did not accept/)
+    })
+
+    // The up-front refusals Core's SendRawTransaction answers with (TXV1Controller.cs).
+    it.each([
+        "Transaction was rated F and cannot be added to the mempool.",
+        "Not broadcast: together with this address's transactions still waiting to be mined it would overspend (needs 5, has 3). Submit it again once they are mined.",
+        "Transaction conflicts with one already in the mempool.",
+        "Transaction was not admitted to the mempool: pool is full",
+        "Transaction was not verified."
+    ])("carries the node's reason when it refuses: %s", async (message) => {
+        const err = await broadcastTransaction(
+            Network.Testnet,
+            await signed(),
+            fakeNode({ "/raw/send/": { status: 200, text: JSON.stringify({ Result: "Fail", Message: message }) } }).fn
+        ).catch((e) => e)
+        expect(err).toBeInstanceOf(TransactionRefusedError)
+        expect(err).not.toBeInstanceOf(TransactionDispatchError)
+        expect(err.nodeMessage).toBe(message)
+        expect(err.message).toBe(`The network refused the transaction: ${message}`)
+    })
+
+    it("keeps the generic text for a blank reason and bounds a long one", async () => {
+        const refuse = async (message: unknown) =>
+            broadcastTransaction(
+                Network.Testnet,
+                await signed(),
+                fakeNode({ "/raw/send/": { status: 200, text: JSON.stringify({ Result: "Fail", Message: message }) } }).fn
+            ).catch((e) => e)
+
+        for (const blank of ["", "  \n ", 42, null]) {
+            const err = await refuse(blank)
+            expect(err.nodeMessage).toBeNull()
+            expect(err.message).toMatch(/did not accept/)
+        }
+
+        const long = await refuse(`Error -\n${"x".repeat(1000)}`)
+        expect(long.nodeMessage.startsWith("Error - xxx")).toBe(true)
+        expect(long.nodeMessage.length).toBe(301)
+        expect(long.nodeMessage.endsWith("…")).toBe(true)
     })
 })

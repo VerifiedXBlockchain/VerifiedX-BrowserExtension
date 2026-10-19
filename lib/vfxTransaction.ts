@@ -81,13 +81,37 @@ class RawApi {
         return (await this.post(path)).trim() === "true"
     }
 
-    async verify(transaction: SignedVfxTransaction): Promise<boolean> {
-        return (await this.postJson("/verify/", transaction))?.Result === "Success"
+    // The node's answer as sent: {Result, Message, Hash}.
+    async verify(transaction: SignedVfxTransaction): Promise<Record<string, unknown> | null> {
+        return this.postJson("/verify/", transaction)
     }
 
-    async send(transaction: SignedVfxTransaction): Promise<boolean> {
-        return (await this.postJson("/send/", transaction))?.Result === "Success"
+    // The node's answer as sent: {Result, Message, Hash}.
+    async send(transaction: SignedVfxTransaction): Promise<Record<string, unknown> | null> {
+        return this.postJson("/send/", transaction)
     }
+}
+
+const MAX_NODE_MESSAGE_LENGTH = 300
+
+// The node refused the transaction at verify or send, so nothing was sent.
+// The message carries the node's reason (insufficient balance, rated F,
+// overspend with pending transactions, mempool conflict, ...) when it gave one.
+export class TransactionRefusedError extends Error {
+    constructor(
+        readonly nodeMessage: string | null,
+        fallback = "The network did not accept the transaction"
+    ) {
+        super(nodeMessage ? `The network refused the transaction: ${nodeMessage}` : fallback)
+        this.name = "TransactionRefusedError"
+    }
+}
+
+function nodeMessage(response: Record<string, unknown> | null): string | null {
+    if (typeof response?.Message !== "string") return null
+    const message = response.Message.replace(/\s+/g, " ").trim()
+    if (!message) return null
+    return message.length > MAX_NODE_MESSAGE_LENGTH ? `${message.slice(0, MAX_NODE_MESSAGE_LENGTH)}…` : message
 }
 
 function requireNumber(text: string, label: string): number {
@@ -134,7 +158,8 @@ export async function prepareTransaction(
 }
 
 // Signs a prepared transaction and has the node check it. Throws if the
-// node rejects the signature or the transaction.
+// node rejects the signature, or TransactionRefusedError with the node's
+// reason if it rejects the transaction.
 export async function signPreparedTransaction(
     prepared: PreparedTransaction,
     privateKey: string,
@@ -150,28 +175,30 @@ export async function signPreparedTransaction(
     if (!(await api.validateSignature(transaction.Hash, transaction.FromAddress, transaction.Signature))) {
         throw new Error("The network rejected the signature")
     }
-    if (!(await api.verify(transaction))) {
-        throw new Error("The network rejected the transaction")
+    const verification = await api.verify(transaction)
+    if (verification?.Result !== "Success") {
+        throw new TransactionRefusedError(nodeMessage(verification), "The network rejected the transaction")
     }
     return transaction
 }
 
 // Sends a signed transaction. Errors before the request goes out mean it was
-// not sent; a lost reply throws TransactionDispatchError carrying the hash.
+// not sent; a lost reply throws TransactionDispatchError carrying the hash; a
+// refusal throws TransactionRefusedError with the node's reason.
 export async function broadcastTransaction(
     network: Network,
     transaction: SignedVfxTransaction,
     fetchFn: FetchFn = defaultFetch
 ): Promise<string> {
     const api = new RawApi(network, fetchFn)
-    let accepted: boolean
+    let response: Record<string, unknown> | null
     try {
-        accepted = await api.send(transaction)
+        response = await api.send(transaction)
     } catch (err) {
         throw new TransactionDispatchError(transaction.Hash, err)
     }
-    if (!accepted) {
-        throw new Error("The network did not accept the transaction")
+    if (response?.Result !== "Success") {
+        throw new TransactionRefusedError(nodeMessage(response))
     }
     return transaction.Hash
 }
