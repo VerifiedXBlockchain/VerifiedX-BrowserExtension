@@ -105,6 +105,24 @@ describe("signPreparedTransaction", () => {
         ).rejects.toThrow(/transaction/)
     })
 
+    // VerifyRawTransaction's refusal (TXV1Controller.cs): balance, bonded stake,
+    // frozen address and cross-network recipient all fail here, before /send/.
+    it("carries the node's reason when verify refuses", async () => {
+        const prepared = await prepareTransaction(Network.Testnet, ACCOUNT.address, request(), fakeNode().fn)
+        const message = "Transaction was not verified. Error: Insufficient Balance."
+        const node = fakeNode({ "/raw/verify/": { status: 200, text: JSON.stringify({ Result: "Fail", Message: message }) } })
+        const err = await signPreparedTransaction(prepared, PRIVATE_KEY, node.fn).catch((e) => e)
+        expect(err).toBeInstanceOf(TransactionRefusedError)
+        expect(err.nodeMessage).toBe(message)
+        expect(err.message).toBe(`The network refused the transaction: ${message}`)
+        expect(node.calls.some((c) => c.url.includes("/raw/send/"))).toBe(false)
+
+        const silent = await signPreparedTransaction(prepared, PRIVATE_KEY, fakeNode({ "/raw/verify/": { status: 200, text: "{}" } }).fn).catch((e) => e)
+        expect(silent).toBeInstanceOf(TransactionRefusedError)
+        expect(silent.nodeMessage).toBeNull()
+        expect(silent.message).toBe("The network rejected the transaction")
+    })
+
     it("refuses to sign for a different account", async () => {
         const prepared = await prepareTransaction(Network.Testnet, ACCOUNT.address, request(), fakeNode().fn)
         await expect(signPreparedTransaction(prepared, client.generatePrivateKey(), fakeNode().fn)).rejects.toThrow(/account/)

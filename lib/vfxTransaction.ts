@@ -81,8 +81,9 @@ class RawApi {
         return (await this.post(path)).trim() === "true"
     }
 
-    async verify(transaction: SignedVfxTransaction): Promise<boolean> {
-        return (await this.postJson("/verify/", transaction))?.Result === "Success"
+    // The node's answer as sent: {Result, Message, Hash}.
+    async verify(transaction: SignedVfxTransaction): Promise<Record<string, unknown> | null> {
+        return this.postJson("/verify/", transaction)
     }
 
     // The node's answer as sent: {Result, Message, Hash}.
@@ -93,12 +94,15 @@ class RawApi {
 
 const MAX_NODE_MESSAGE_LENGTH = 300
 
-// The node answered the send and refused it, so nothing was sent. The message
-// carries the node's reason (rated F, overspend with pending transactions,
-// mempool conflict, not admitted) when it gave one.
+// The node refused the transaction at verify or send, so nothing was sent.
+// The message carries the node's reason (insufficient balance, rated F,
+// overspend with pending transactions, mempool conflict, ...) when it gave one.
 export class TransactionRefusedError extends Error {
-    constructor(readonly nodeMessage: string | null) {
-        super(nodeMessage ? `The network refused the transaction: ${nodeMessage}` : "The network did not accept the transaction")
+    constructor(
+        readonly nodeMessage: string | null,
+        fallback = "The network did not accept the transaction"
+    ) {
+        super(nodeMessage ? `The network refused the transaction: ${nodeMessage}` : fallback)
         this.name = "TransactionRefusedError"
     }
 }
@@ -154,7 +158,8 @@ export async function prepareTransaction(
 }
 
 // Signs a prepared transaction and has the node check it. Throws if the
-// node rejects the signature or the transaction.
+// node rejects the signature, or TransactionRefusedError with the node's
+// reason if it rejects the transaction.
 export async function signPreparedTransaction(
     prepared: PreparedTransaction,
     privateKey: string,
@@ -170,8 +175,9 @@ export async function signPreparedTransaction(
     if (!(await api.validateSignature(transaction.Hash, transaction.FromAddress, transaction.Signature))) {
         throw new Error("The network rejected the signature")
     }
-    if (!(await api.verify(transaction))) {
-        throw new Error("The network rejected the transaction")
+    const verification = await api.verify(transaction)
+    if (verification?.Result !== "Success") {
+        throw new TransactionRefusedError(nodeMessage(verification), "The network rejected the transaction")
     }
     return transaction
 }
