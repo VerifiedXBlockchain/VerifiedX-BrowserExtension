@@ -85,9 +85,29 @@ class RawApi {
         return (await this.postJson("/verify/", transaction))?.Result === "Success"
     }
 
-    async send(transaction: SignedVfxTransaction): Promise<boolean> {
-        return (await this.postJson("/send/", transaction))?.Result === "Success"
+    // The node's answer as sent: {Result, Message, Hash}.
+    async send(transaction: SignedVfxTransaction): Promise<Record<string, unknown> | null> {
+        return this.postJson("/send/", transaction)
     }
+}
+
+const MAX_NODE_MESSAGE_LENGTH = 300
+
+// The node answered the send and refused it, so nothing was sent. The message
+// carries the node's reason (rated F, overspend with pending transactions,
+// mempool conflict, not admitted) when it gave one.
+export class TransactionRefusedError extends Error {
+    constructor(readonly nodeMessage: string | null) {
+        super(nodeMessage ? `The network refused the transaction: ${nodeMessage}` : "The network did not accept the transaction")
+        this.name = "TransactionRefusedError"
+    }
+}
+
+function nodeMessage(response: Record<string, unknown> | null): string | null {
+    if (typeof response?.Message !== "string") return null
+    const message = response.Message.replace(/\s+/g, " ").trim()
+    if (!message) return null
+    return message.length > MAX_NODE_MESSAGE_LENGTH ? `${message.slice(0, MAX_NODE_MESSAGE_LENGTH)}…` : message
 }
 
 function requireNumber(text: string, label: string): number {
@@ -157,21 +177,22 @@ export async function signPreparedTransaction(
 }
 
 // Sends a signed transaction. Errors before the request goes out mean it was
-// not sent; a lost reply throws TransactionDispatchError carrying the hash.
+// not sent; a lost reply throws TransactionDispatchError carrying the hash; a
+// refusal throws TransactionRefusedError with the node's reason.
 export async function broadcastTransaction(
     network: Network,
     transaction: SignedVfxTransaction,
     fetchFn: FetchFn = defaultFetch
 ): Promise<string> {
     const api = new RawApi(network, fetchFn)
-    let accepted: boolean
+    let response: Record<string, unknown> | null
     try {
-        accepted = await api.send(transaction)
+        response = await api.send(transaction)
     } catch (err) {
         throw new TransactionDispatchError(transaction.Hash, err)
     }
-    if (!accepted) {
-        throw new Error("The network did not accept the transaction")
+    if (response?.Result !== "Success") {
+        throw new TransactionRefusedError(nodeMessage(response))
     }
     return transaction.Hash
 }
