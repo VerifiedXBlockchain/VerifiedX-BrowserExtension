@@ -1,8 +1,9 @@
 import type { Account, IBtcKeypair } from "~types/types";
 import { Network } from "~types/types";
+import { createBtcClient } from "~lib/btcNetwork";
 
 
-import { VfxClient, btc } from 'vfx-web-sdk'
+import { VfxClient } from 'vfx-web-sdk'
 
 // Normalize VFX private keys by stripping 00 prefix if present (for CLI compatibility)
 export const normalizeVfxPrivateKey = (privateKey: string): string => {
@@ -123,8 +124,6 @@ export const createBtcKeypairFromVfx = (network: Network, vfxPrivateKey: string)
     const password = `${normalizedKey.substring(0, 12)}${normalizedKey.substring(normalizedKey.length - 12)}`
 
     // Use BtcClient convenience method
-    const btcNetwork = network === Network.Mainnet ? 'mainnet' : 'testnet'
-    console.log("VFX Network:", network, "-> BTC Network:", btcNetwork)
-    const btcClient = new btc.BtcClient(btcNetwork)
+    const btcClient = createBtcClient(network)
     return btcClient.generateEmailKeypair(email, password, 0)
 }

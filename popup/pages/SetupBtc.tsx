@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Network, Currency } from "~types/types"
+import { BTC_NETWORK_LABELS } from "~lib/btcNetwork"
 
 interface SetupBtcProps {
   network: Network
@@ -43,7 +44,7 @@ function SetupBtc({ network, onCreateFromVfx, onImportPrivateKey, onImportWif }:
 
       <div className="mt-6 text-xs text-gray-500 text-center">
         <p>
-          Network: {network === Network.Mainnet ? "Bitcoin Mainnet" : "Bitcoin Testnet4"}
+          Network: {BTC_NETWORK_LABELS[network]}
         </p>
       </div>
     </div>

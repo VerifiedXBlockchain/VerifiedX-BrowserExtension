@@ -1,4 +1,5 @@
-import { mempoolTxUrl, type UncertainBtcSend } from "~lib/btcSendCheck"
+import { btcTxUrl } from "~lib/btcNetwork"
+import type { UncertainBtcSend } from "~lib/btcSendCheck"
 
 interface Props {
     send: UncertainBtcSend
@@ -15,7 +16,7 @@ export default function UncertainBtcSendNotice({ send }: Props) {
             <div className="text-amber-100">
                 <div>Transaction ID:</div>
                 <a
-                    href={mempoolTxUrl(send.network, send.txid)}
+                    href={btcTxUrl(send.network, send.txid)}
                     target="_blank"
                     rel="noreferrer"
                     className="font-mono break-all underline"

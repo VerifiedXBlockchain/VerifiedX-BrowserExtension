@@ -8,7 +8,7 @@ This is a Plasmo-based browser extension for the VerifiedX (VFX) network with Bi
 
 **Supported Currencies:**
 - **VFX (VerifiedX)** - Mainnet and Testnet
-- **BTC (Bitcoin)** - Mainnet and Testnet4 (via mempool API)
+- **BTC (Bitcoin)** - Mainnet (mempool.space API) and Testnet (the VerifiedX Bitcoin signet, `https://signet.verifiedx.io/api`; no public faucet). Endpoints live in `lib/btcNetwork.ts`; build BTC clients with `createBtcClient(network)`.
 
 ## Development Commands
 
@@ -102,7 +102,7 @@ Website requests (`window.verifiedX`, see "Provider API" in README.md) use `PROV
 ### Currency and Network Structure
 The extension will support a matrix of Currency × Network combinations:
 - **VFX-Mainnet**, **VFX-Testnet** (existing)
-- **BTC-Mainnet**, **BTC-Testnet4** (new)
+- **BTC-Mainnet**, **BTC-Testnet** (the VerifiedX signet)
 
 ### BTC Wallet Creation Methods
 1. **Derived from VFX Key**: Uses VFX private key → email/password format → deterministic BTC keypair
