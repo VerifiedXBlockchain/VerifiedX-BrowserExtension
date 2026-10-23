@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
     REFUSAL_SETTLE_MS,
-    mempoolTxUrl,
     resolveUncertainBtcSend,
     unknownBtcBroadcast,
     type BroadcastCheck,
@@ -133,12 +132,5 @@ describe("resolveUncertainBtcSend", () => {
         const client = fakeClient(new Error("offline"))
         const result = await resolveUncertainBtcSend(record, client, () => T0 + 10 * REFUSAL_SETTLE_MS)
         expect(result.outcome).toBe("pending")
-    })
-})
-
-describe("mempoolTxUrl", () => {
-    it("links testnet4 and mainnet", () => {
-        expect(mempoolTxUrl(Network.Testnet, TXID)).toBe(`https://mempool.space/testnet4/tx/${TXID}`)
-        expect(mempoolTxUrl(Network.Mainnet, TXID)).toBe(`https://mempool.space/tx/${TXID}`)
     })
 })

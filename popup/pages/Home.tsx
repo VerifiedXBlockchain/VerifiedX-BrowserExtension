@@ -10,7 +10,7 @@ import SendForm from "~lib/components/SendForm"
 import TransactionList from "~lib/components/TransactionList"
 import { useToast } from "~lib/hooks/useToast"
 import Toast from "~lib/components/Toast"
-import { VfxClient, btc, TransactionDispatchError } from 'vfx-web-sdk'
+import { VfxClient, TransactionDispatchError } from 'vfx-web-sdk'
 import Receive from "~lib/components/Receive"
 import CopyAddress from "~lib/components/CopyAddress"
 import {
@@ -27,6 +27,7 @@ import { checkDispatchOutcome, type UncertainSend } from "~lib/dispatchCheck"
 import { resolveUncertainBtcSend, unknownBtcBroadcast, type BtcBroadcaster, type UncertainBtcSend } from "~lib/btcSendCheck"
 import UncertainSendNotice from "~lib/components/UncertainSendNotice"
 import UncertainBtcSendNotice from "~lib/components/UncertainBtcSendNotice"
+import { createBtcClient } from "~lib/btcNetwork"
 import NetworkToggle from "~lib/components/NetworkToggle"
 import CurrencyToggle from "~lib/components/CurrencyToggle"
 import OptionsMenu from "~lib/components/OptionsMenu"
@@ -134,7 +135,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 setUncertainBtcSendState(record)
                 if (!record) return
 
-                const client = new btc.BtcClient(network === Network.Mainnet ? "mainnet" : "testnet") as unknown as BtcBroadcaster
+                const client = createBtcClient(network) as unknown as BtcBroadcaster
                 if (typeof client.checkBroadcast !== "function") return
 
                 const result = await resolveUncertainBtcSend(record, client)
@@ -193,7 +194,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
             setBtcKeypair(keypair)
 
             // Fetch BTC account info using the keypair
-            const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
+            const btcClient = createBtcClient(network)
             const accountInfo = await btcClient.getAddressInfo(keypair.address || keypair.addresses.bech32 || '')
             setBtcAccountInfo(accountInfo)
 
@@ -263,7 +264,7 @@ export default function Home({ network, currency, account, onNetworkChange, onCu
                 return { status: "failed" };
             }
 
-            const btcClient = new btc.BtcClient(network === Network.Mainnet ? 'mainnet' : 'testnet')
+            const btcClient = createBtcClient(network)
             // sendBtc takes the amount in BTC and converts to satoshis itself.
             const hash = await btcClient.sendBtc(btcKeypair.wif, toAddress, amount);
             return hash ? { status: "sent", hash } : { status: "failed" };

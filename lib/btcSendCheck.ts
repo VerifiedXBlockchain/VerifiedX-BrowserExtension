@@ -82,10 +82,6 @@ export function unknownBtcBroadcast(err: unknown): { txid: string; signedTxHex: 
     return { txid, signedTxHex }
 }
 
-export function mempoolTxUrl(network: Network, txid: string): string {
-    return `https://mempool.space/${network === Network.Testnet ? "testnet4/" : ""}tx/${txid}`
-}
-
 export async function resolveUncertainBtcSend(
     record: UncertainBtcSend,
     client: BtcBroadcaster,
