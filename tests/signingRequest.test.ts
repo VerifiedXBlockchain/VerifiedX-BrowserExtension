@@ -15,6 +15,7 @@ import {
 import { createAccountFromSecret } from "~lib/utils"
 
 import NFT_VECTORS from "./fixtures/nftSigningVectors.json"
+import VBTC_CREATE from "./fixtures/vbtcCreateRequest.json"
 import { Network } from "~types/types"
 
 const client = new VfxClient(Network.Testnet)
@@ -151,6 +152,24 @@ describe("digest checks", () => {
         const message = "cd".repeat(32)
         const item = { digestHex: sha256Hex(message), request: { ...txItem(tx).request, message } }
         expect(errorOf(() => validateSignRequestParams(item, Network.Testnet)).message).toMatch(/message does not match/)
+    })
+
+    it("accepts a prepared transaction whose Data is the node's JSON text (vBTC contract create)", () => {
+        expect(typeof VBTC_CREATE.request.transaction.Data).toBe("string")
+        const params = validateSignRequestParams(VBTC_CREATE, Network.Testnet)
+        const item = params.items[0]
+        expect(messageFor(item)).toBe(VBTC_CREATE.request.transaction.Hash)
+        if (item.request.kind !== "transaction") throw new Error("expected a transaction")
+        // The popup shows (and the hash covers) the parsed contract data.
+        expect(Array.isArray(item.request.transaction.Data)).toBe(true)
+        expect(describeSigningRequest(item.request).title).toBe("Create a vBTC vault")
+    })
+
+    it("still refuses a JSON-text Data that was changed after hashing", () => {
+        const data = JSON.parse(VBTC_CREATE.request.transaction.Data)
+        data[0].ContractUID = "tampered:1"
+        const tampered = { ...VBTC_CREATE, request: { ...VBTC_CREATE.request, hashPreimage: undefined, transaction: { ...VBTC_CREATE.request.transaction, Data: JSON.stringify(data) } } }
+        expect(errorOf(() => validateSignRequestParams(tampered, Network.Testnet)).message).toMatch(/hash does not match/)
     })
 
     it("refuses transaction types it cannot hash locally", () => {

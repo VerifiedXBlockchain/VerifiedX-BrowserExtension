@@ -162,6 +162,17 @@ function inputSessionId(sessionId: string, inputIndex: number): string {
     return sessionId.endsWith(suffix) ? sessionId : `${sessionId}${suffix}`
 }
 
+// A string that holds a JSON object or array, parsed; any other string as is.
+function parseJsonContainer(text: string): unknown {
+    const trimmed = text.trim()
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return text
+    try {
+        return JSON.parse(trimmed)
+    } catch {
+        return text
+    }
+}
+
 function validateTransaction(raw: unknown): SigningTransaction {
     const tx = raw as Record<string, unknown> | null
     if (!tx || typeof tx !== "object" || Array.isArray(tx)) invalid("transaction must be an object")
@@ -175,7 +186,12 @@ function validateTransaction(raw: unknown): SigningTransaction {
     if (tx.Data !== undefined && tx.Data !== null) {
         let serialised: string
         try {
-            serialised = JSON.stringify(tx.Data)
+            // Prepared transactions (vBTC contract create) carry Data as the
+            // JSON text the node returned. The node hashes the parsed JSON,
+            // as the SDK does, so it is parsed here too: the hash check below
+            // then covers exactly what the popup shows.
+            const parsed = typeof tx.Data === "string" ? parseJsonContainer(tx.Data) : tx.Data
+            serialised = JSON.stringify(parsed)
         } catch {
             invalid("transaction.Data must be JSON")
         }
