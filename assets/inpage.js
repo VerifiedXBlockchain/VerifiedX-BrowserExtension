@@ -136,6 +136,11 @@
       return this.request({ method: 'vfx_signRequest', params });
     }
 
+    // { version, methods }; needs no connection and opens no popup.
+    getCapabilities() {
+      return this.request({ method: 'vfx_getCapabilities' });
+    }
+
     getBtcAccounts() {
       return this.request({ method: 'btc_getAccounts' });
     }

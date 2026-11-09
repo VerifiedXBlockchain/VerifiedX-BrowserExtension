@@ -22,6 +22,7 @@ const provider = new ProviderHandler({
     connections: new ConnectionStore(chrome.storage.local),
     unlockedKey: () => (decryptedMnemonic !== null && Date.now() < unlockUntil ? decryptedMnemonic : null),
     activeNetwork: getNetwork,
+    extensionVersion: () => chrome.runtime.getManifest().version,
     deriveAccount: (network, privateKey) => {
         const account = createAccountFromSecret(network, privateKey)
         return { address: account.address, publicKey: account.public, network }

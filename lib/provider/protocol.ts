@@ -27,10 +27,21 @@ export const ProviderMethod = {
     SignRequest: "vfx_signRequest",
     BtcGetAccounts: "btc_getAccounts",
     // Bitcoin PSBTs (lib/provider/psbt.ts).
-    BtcSignPsbt: "btc_signPsbt"
+    BtcSignPsbt: "btc_signPsbt",
+    // What this extension supports, so a site can feature-detect.
+    GetCapabilities: "vfx_getCapabilities"
 } as const
 
 export type ProviderMethodName = (typeof ProviderMethod)[keyof typeof ProviderMethod]
+
+// Every method request() accepts, in the order vfx_getCapabilities lists them.
+export const SUPPORTED_METHODS: readonly ProviderMethodName[] = Object.values(ProviderMethod)
+
+export interface CapabilitiesResult {
+    // The extension's manifest version.
+    version: string
+    methods: ProviderMethodName[]
+}
 
 // Methods that open an approval popup.
 export const APPROVAL_METHODS: ReadonlySet<string> = new Set([

@@ -30,6 +30,7 @@ Every method is available as `window.verifiedX.request({ method, params })` and 
 | `vfx_signRequest` | `signRequest(params)` | Yes, one per user action | `{ flowId, signatures: [{ digestHex, signature, der }] }` |
 | `btc_getAccounts` | `getBtcAccounts()` | No | `[{ address, publicKey, network }]`, or `[]` if not connected, locked, or no Bitcoin wallet |
 | `btc_signPsbt` | `signPsbt(params)` | Yes | `{ psbt, signedInputs, txHex?, txid? }` |
+| `vfx_getCapabilities` | `getCapabilities()` | No | `{ version, methods }`: the extension's manifest version and every method `request()` accepts. Needs no connection. An extension that predates it rejects the call with `4200`, so treat that as "only the methods up to `vfx_sendTransaction`" |
 
 Signing methods need a connected site. A connection lasts until the site calls `disconnect()` or the wallet is removed from the extension. It covers both networks, and the site sees the account for the network the extension is on.
 

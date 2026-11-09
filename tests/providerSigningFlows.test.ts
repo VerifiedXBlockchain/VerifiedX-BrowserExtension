@@ -44,6 +44,7 @@ function harness(withBtc = true) {
         queue,
         connections,
         unlockedKey: () => PRIVATE_KEY,
+        extensionVersion: () => "1.2.3",
         activeNetwork: async () => Network.Testnet,
         deriveAccount: (network, privateKey) => {
             const account = createAccountFromSecret(network, privateKey)

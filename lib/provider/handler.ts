@@ -12,8 +12,10 @@ import {
     ProviderErrorCode,
     ProviderMethod,
     sanitizeResult,
+    SUPPORTED_METHODS,
     validateSignMessageParams,
     validateTransactionParams,
+    type CapabilitiesResult,
     type ProviderResponse,
     type SignMessageParams,
     type SignMessageResult,
@@ -39,6 +41,8 @@ export interface ProviderHandlerDeps {
     // Without it, btc_getAccounts returns [] and btc_signPsbt cannot be
     // approved.
     btcAccount?: (network: Network, privateKey: string) => Promise<BtcAccount | null>
+    // The extension's manifest version, reported by vfx_getCapabilities.
+    extensionVersion: () => string
 }
 
 export interface RequestSource {
@@ -80,6 +84,10 @@ export class ProviderHandler {
         const connected = await connections.isConnected(source.origin)
 
         switch (method) {
+            case ProviderMethod.GetCapabilities: {
+                const capabilities: CapabilitiesResult = { version: this.deps.extensionVersion(), methods: [...SUPPORTED_METHODS] }
+                return capabilities
+            }
             case ProviderMethod.GetAccounts: {
                 const account = connected ? await this.currentAccount() : null
                 return account ? [account] : []

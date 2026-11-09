@@ -126,6 +126,14 @@ export interface VerifiedXSignPsbtResult {
     txid?: string
 }
 
+/** vfx_getCapabilities: what this extension supports. No connection or popup needed. */
+export interface VerifiedXCapabilities {
+    /** The extension's manifest version. */
+    version: string
+    /** Every method request() accepts. Absent from older extensions, which reject the call with 4200. */
+    methods: VerifiedXMethod[]
+}
+
 export interface VerifiedXRequestMap {
     vfx_connect: { params: undefined; result: VerifiedXAccount[] }
     vfx_getAccounts: { params: undefined; result: VerifiedXAccount[] }
@@ -136,6 +144,7 @@ export interface VerifiedXRequestMap {
     vfx_signRequest: { params: VerifiedXSignRequestParams; result: VerifiedXSignRequestResult }
     btc_getAccounts: { params: undefined; result: VerifiedXBtcAccount[] }
     btc_signPsbt: { params: VerifiedXSignPsbtParams; result: VerifiedXSignPsbtResult }
+    vfx_getCapabilities: { params: undefined; result: VerifiedXCapabilities }
 }
 
 export type VerifiedXMethod = keyof VerifiedXRequestMap
@@ -170,6 +179,7 @@ export interface VerifiedXProvider {
     signTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSignTransactionResult>
     sendTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSendTransactionResult>
     signRequest(params: VerifiedXSignRequestParams): Promise<VerifiedXSignRequestResult>
+    getCapabilities(): Promise<VerifiedXCapabilities>
     getBtcAccounts(): Promise<VerifiedXBtcAccount[]>
     signPsbt(params: VerifiedXSignPsbtParams): Promise<VerifiedXSignPsbtResult>
     /**
