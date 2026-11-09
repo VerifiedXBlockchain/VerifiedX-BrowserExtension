@@ -28,6 +28,17 @@
         "flowId": "a3ac9d27ea700845f2783327",
         "message": "hBMcrNsfMhsodzcn.1794199399"
       }
+    },
+    {
+      "sdk": "vfx-web-sdk PR 37 @f37bdaf (pullNftBeaconAssets)",
+      "digestHex": "5b8f8ba1f0edc4a42f7bea46fca86fcc3ecf361bf19a81197c7eb355ff626232",
+      "request": {
+        "kind": "nft-beacon-download",
+        "flowId": "f64513f74e8590ac48f5a80e",
+        "message": "8a3c2f0e6b1d4f7a9c2e5b8d1f4a7c0e:1762659000",
+        "scIdentifier": "8a3c2f0e6b1d4f7a9c2e5b8d1f4a7c0e:1762659000",
+        "locators": "eyJJUEFkZHJlc3MiOiIxNDQuMTI2LjE1Ni4xMDEiLCJQb3J0IjozMzM4LCJCZWFjb25VSUQiOiJhMWIyYzNkNCJ9"
+      }
     }
   ]
 }

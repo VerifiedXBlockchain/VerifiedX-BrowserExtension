@@ -359,7 +359,7 @@ describe("NFT and Spyglass requests (SDK @2d4d633)", () => {
     })
 
     it("accepts each kind exactly as the SDK sends it, signed by the approving account", () => {
-        for (const kind of ["nft-beacon-upload", "nft-ownership-proof", "spyglass-auth"]) {
+        for (const kind of ["nft-beacon-upload", "nft-beacon-download", "nft-ownership-proof", "spyglass-auth"]) {
             const v = vector(kind)
             expect(v.digestHex).toBe(sha256Hex(v.request.message))
             const params = validateSignRequestParams(v, Network.Testnet, NOW)
@@ -382,6 +382,20 @@ describe("NFT and Spyglass requests (SDK @2d4d633)", () => {
         expect(describeSigningRequest(validateSignRequestParams(v, Network.Testnet, NOW).items[0].request).rows).toEqual(
             expect.arrayContaining([{ label: "Files go to", value: v.request.toAddress, mono: true }])
         )
+    })
+
+    it("nft-beacon-download (SDK PR 37 @f37bdaf): exactly the contract id, real locators only", () => {
+        const v = vector("nft-beacon-download")
+        expect(v.request.message).toBe(v.request.scIdentifier)
+        const other = withMessage("nft-beacon-download", "another:1")
+        expect(errorOf(() => validateSignRequestParams(other, Network.Testnet, NOW)).message).toMatch(/message does not match/)
+        for (const locators of ["NA", "", "not base64!", "x".repeat(2049)]) {
+            const bad = { ...v, request: { ...v.request, locators } }
+            expect(errorOf(() => validateSignRequestParams(bad, Network.Testnet, NOW)).code, locators).toBe(ProviderErrorCode.InvalidParams)
+        }
+        const two = { ...v, request: { ...v.request, locators: `${v.request.locators},${v.request.locators}` } }
+        expect(validateSignRequestParams(two, Network.Testnet, NOW).items).toHaveLength(1)
+        expect(describeFlow(validateSignRequestParams(v, Network.Testnet, NOW).items)).toMatch(/received NFT's files/)
     })
 
     it("nft-ownership-proof and spyglass-auth: only <nonce>.<unix time> in the SDK's shape", () => {

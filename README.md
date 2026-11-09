@@ -93,12 +93,13 @@ Before a popup opens, the extension rebuilds each message from the request's fie
 | `vbtc-ownership` | owner, name, description, ticker, ceremony id, timestamp and unique id, concatenated |
 | `reserve-recovery` | `{signatureTime}{recoveryAddress}` |
 | `nft-beacon-upload` | Exactly `scIdentifier` (asks the node to push the NFT's files to `toAddress`) |
+| `nft-beacon-download` | Exactly `scIdentifier` (the new owner asks the node to fetch the NFT's files from `locators`, which must not be `NA`) |
 | `nft-ownership-proof` | `message` itself, which must be 8 letters, a dot and a Unix time within 10 minutes of the extension's clock |
 | `spyglass-auth` | `message` itself, which must be 16 letters, a dot and a Unix time within 10 minutes of the extension's clock |
 
 A digest without a request is refused, as are `message` requests (use `vfx_signMessage`, which prefixes the origin), privacy transaction types the extension cannot hash, and any other kind. Every item in one call must share a `flowId` and sign for the wallet's account on the active network. The popup shows each step decoded (amount, recipient, fee, type and data for a transaction; vault, ceremony and withdrawal details for the rest) and one approval signs them all.
 
-The three NFT kinds follow vfx-web-sdk `feat/nft-and-vault-recovery` @2d4d633. They name no address, so the account that approves them signs. A `spyglass-auth` request gets the site a one-hour Spyglass session that can change the account's NFT media: it must come on its own (never in a batch), and its popup shows the requesting site and enables Approve only after the user ticks an acknowledgement.
+The NFT and Spyglass kinds follow vfx-web-sdk `feat/nft-and-vault-recovery` @2d4d633 (`nft-beacon-download`: PR 37 @f37bdaf). They name no address, so the account that approves them signs. A `spyglass-auth` request gets the site a one-hour Spyglass session that can change the account's NFT media: it must come on its own (never in a batch), and its popup shows the requesting site and enables Approve only after the user ticks an acknowledgement.
 
 #### Bitcoin PSBTs
 

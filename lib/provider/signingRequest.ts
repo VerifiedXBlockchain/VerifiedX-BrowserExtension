@@ -52,16 +52,18 @@ export const SIGNING_REQUEST_KINDS = [
     "frost-withdrawal",
     "reserve-recovery",
     "nft-beacon-upload",
+    "nft-beacon-download",
     "nft-ownership-proof",
     "spyglass-auth"
 ] as const
 
 // NFT and Spyglass requests, pinned to vfx-web-sdk
-// feat/nft-and-vault-recovery @2d4d633 (not yet in the SDK this extension
-// builds against). Their messages carry no address: they are signed by the
+// feat/nft-and-vault-recovery @2d4d633 (nft-beacon-download: PR 37 @f37bdaf),
+// not yet in the SDK this extension builds against. Their messages carry no address: they are signed by the
 // account that approves them.
 type NftSigningRequest =
     | { kind: "nft-beacon-upload"; flowId: string; message: string; scIdentifier: string; toAddress: string }
+    | { kind: "nft-beacon-download"; flowId: string; message: string; scIdentifier: string; locators: string }
     | { kind: "nft-ownership-proof"; flowId: string; message: string; scIdentifier: string }
     | { kind: "spyglass-auth"; flowId: string; message: string }
 
@@ -73,6 +75,10 @@ export type SupportedSigningRequest =
 // proof, 16 for a Spyglass session.
 const OWNERSHIP_PROOF_MESSAGE = /^[A-Za-z]{8}\.(\d{9,11})$/
 const SPYGLASS_AUTH_MESSAGE = /^[A-Za-z]{16}\.(\d{9,11})$/
+// The node's beacon locators for an NFT (base64 of the beacon's address,
+// comma-separated when there are several). "NA" means no media; the SDK never
+// asks to sign for it.
+const LOCATORS_PATTERN = /^[A-Za-z0-9+/=,]{1,2048}$/
 // How far a timed message's clock may be from the extension's.
 export const MESSAGE_TIME_WINDOW_SECONDS = 10 * 60
 
@@ -322,6 +328,20 @@ export function rebuildSigningRequest(raw: unknown): { request: SupportedSigning
                 toAddress: requireAddress(value.toAddress, "request.toAddress")
             }
             // The owner signs the contract id itself (SDK transferNft).
+            return { request, message: request.scIdentifier, signer: null }
+        }
+
+        case "nft-beacon-download": {
+            const locators = requireString(value.locators, "request.locators", LOCATORS_PATTERN, 2048)
+            if (locators === "NA") invalid("request.locators is NA: there is nothing to fetch")
+            const request: SupportedSigningRequest = {
+                kind: "nft-beacon-download",
+                flowId,
+                message,
+                scIdentifier: requireString(value.scIdentifier, "request.scIdentifier", ID_PATTERN),
+                locators
+            }
+            // The new owner signs the contract id itself (SDK pullNftBeaconAssets).
             return { request, message: request.scIdentifier, signer: null }
         }
 
@@ -605,6 +625,15 @@ export function describeSigningRequest(request: SupportedSigningRequest): Signin
                 rows: [
                     { label: "NFT", value: request.scIdentifier, mono: true },
                     { label: "Files go to", value: request.toAddress, mono: true },
+                    { label: "Message signed", value: request.message, mono: true }
+                ]
+            }
+        case "nft-beacon-download":
+            return {
+                title: "Fetch a received NFT's files",
+                rows: [
+                    { label: "NFT", value: request.scIdentifier, mono: true },
+                    { label: "From beacons", value: request.locators, mono: true },
                     { label: "Message signed", value: request.message, mono: true }
                 ]
             }
