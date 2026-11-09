@@ -71,6 +71,34 @@ export interface VerifiedXSendTransactionResult {
     status: "sent" | "unknown"
 }
 
+/**
+ * One signature for vfx_signRequest: a vfx-web-sdk Signer's digest and the
+ * SigningRequest it came with (`signDigest(digestHex, request)`). Supported
+ * kinds: transaction, vbtc-ceremony, vbtc-ownership, frost-withdrawal,
+ * reserve-recovery. The extension rebuilds the message from the request's
+ * fields and refuses the request if `digestHex` is not SHA-256 of it.
+ */
+export interface VerifiedXSigningItem {
+    digestHex: string
+    /** vfx-web-sdk `SigningRequest`. */
+    request: { kind: string; flowId: string; message: string; [field: string]: unknown }
+}
+
+/** A single item, or every signature of one user action (one shared flowId, one approval). */
+export type VerifiedXSignRequestParams = VerifiedXSigningItem | { flowId?: string; items: VerifiedXSigningItem[] }
+
+export interface VerifiedXSignRequestResult {
+    flowId: string
+    /** One per item, in order. */
+    signatures: Array<{
+        digestHex: string
+        /** base64(DER).base58(publicKey), the network's signature format. */
+        signature: string
+        /** DER signature as hex: what Signer.signDigest returns. */
+        der: string
+    }>
+}
+
 export interface VerifiedXRequestMap {
     vfx_connect: { params: undefined; result: VerifiedXAccount[] }
     vfx_getAccounts: { params: undefined; result: VerifiedXAccount[] }
@@ -78,6 +106,7 @@ export interface VerifiedXRequestMap {
     vfx_signMessage: { params: { message: string }; result: VerifiedXSignMessageResult }
     vfx_signTransaction: { params: VerifiedXTransactionRequest; result: VerifiedXSignTransactionResult }
     vfx_sendTransaction: { params: VerifiedXTransactionRequest; result: VerifiedXSendTransactionResult }
+    vfx_signRequest: { params: VerifiedXSignRequestParams; result: VerifiedXSignRequestResult }
 }
 
 export type VerifiedXMethod = keyof VerifiedXRequestMap
@@ -111,6 +140,7 @@ export interface VerifiedXProvider {
     signMessage(message: string): Promise<VerifiedXSignMessageResult>
     signTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSignTransactionResult>
     sendTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSendTransactionResult>
+    signRequest(params: VerifiedXSignRequestParams): Promise<VerifiedXSignRequestResult>
     /**
      * VerifiedX web wallet only (https://wallet.verifiedx.io for mainnet,
      * https://wallet-testnet.verifiedx.io for testnet). Rejects for any other

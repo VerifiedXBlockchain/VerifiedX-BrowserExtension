@@ -130,6 +130,12 @@
       return this.request({ method: 'vfx_sendTransaction', params: transaction });
     }
 
+    // { digestHex, request } or { flowId, items: [{ digestHex, request }] }
+    // from a vfx-web-sdk Signer (signDigest / signBatch).
+    signRequest(params) {
+      return this.request({ method: 'vfx_signRequest', params });
+    }
+
     isReady() {
       return this._ready;
     }

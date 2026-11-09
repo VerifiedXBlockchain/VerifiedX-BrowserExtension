@@ -27,6 +27,7 @@ Every method is available as `window.verifiedX.request({ method, params })` and 
 | `vfx_signMessage` | `signMessage(message)` | Yes | `{ message, signedMessage, signature, address, publicKey }` |
 | `vfx_signTransaction` | `signTransaction(tx)` | Yes | `{ hash, transaction }`, signed and not sent |
 | `vfx_sendTransaction` | `sendTransaction(tx)` | Yes | `{ hash, status }`, where `status` is `"sent"` or `"unknown"` |
+| `vfx_signRequest` | `signRequest(params)` | Yes, one per user action | `{ flowId, signatures: [{ digestHex, signature, der }] }` |
 
 Signing methods need a connected site. A connection lasts until the site calls `disconnect()` or the wallet is removed from the extension. It covers both networks, and the site sees the account for the network the extension is on.
 
@@ -60,6 +61,36 @@ The site supplies only these fields. The extension gets the timestamp, nonce, fe
 `signTransaction` returns the signed transaction in the node's format for the site to broadcast. It can be sent at any time, so prefer `sendTransaction` unless the site has to submit the transaction itself.
 
 When `sendTransaction` returns `status: "unknown"`, the transaction was dispatched but the network's reply was lost. It may still confirm. Look `hash` up on chain before sending again. The extension refuses new sends from the wallet until that transaction confirms or expires.
+
+#### Structured signing (vfx-web-sdk 9.1 `Signer`)
+
+`vfx_signRequest` lets a site use the extension as the key behind a vfx-web-sdk `Signer`. The SDK calls `signDigest(digestHex, request)` (or `signBatch(items)`) with the SHA-256 digest of each message and a typed `SigningRequest` saying what it is. The site forwards both:
+
+```js
+const signer = {
+  address, publicKey,
+  async signDigest(digestHex, request) {
+    const { signatures } = await window.verifiedX.signRequest({ digestHex, request })
+    return signatures[0].der
+  },
+  async signBatch(items) {
+    const { signatures } = await window.verifiedX.signRequest({ flowId: items[0].request.flowId, items })
+    return signatures.map((s) => s.der)
+  }
+}
+```
+
+Before a popup opens, the extension rebuilds each message from the request's fields and refuses the request (`-32602`) if the digest is not SHA-256 of it:
+
+| Kind | Message rebuilt from |
+|---|---|
+| `transaction` | The transaction fields, hashed with the SDK's port of Core's transaction hash; it must equal `transaction.Hash` and `message` (and `hashPreimage`, if given) |
+| `vbtc-ceremony` | `{sessionId}.{ownerAddress}.{timestamp}` |
+| `frost-withdrawal` | The same, with session `{sessionId}:i{inputIndex}` for extra inputs |
+| `vbtc-ownership` | owner, name, description, ticker, ceremony id, timestamp and unique id, concatenated |
+| `reserve-recovery` | `{signatureTime}{recoveryAddress}` |
+
+A digest without a request is refused, as are `message` requests (use `vfx_signMessage`, which prefixes the origin), privacy transaction types the extension cannot hash, and any other kind. Every item in one call must share a `flowId` and sign for the wallet's account on the active network. The popup shows each step decoded (amount, recipient, fee, type and data for a transaction; vault, ceremony and withdrawal details for the rest) and one approval signs them all.
 
 ### Errors
 

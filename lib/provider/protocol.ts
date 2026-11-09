@@ -22,7 +22,9 @@ export const ProviderMethod = {
     Disconnect: "vfx_disconnect",
     SignMessage: "vfx_signMessage",
     SignTransaction: "vfx_signTransaction",
-    SendTransaction: "vfx_sendTransaction"
+    SendTransaction: "vfx_sendTransaction",
+    // SDK 9.1 Signer requests (lib/provider/signingRequest.ts).
+    SignRequest: "vfx_signRequest"
 } as const
 
 export type ProviderMethodName = (typeof ProviderMethod)[keyof typeof ProviderMethod]
@@ -32,14 +34,16 @@ export const APPROVAL_METHODS: ReadonlySet<string> = new Set([
     ProviderMethod.Connect,
     ProviderMethod.SignMessage,
     ProviderMethod.SignTransaction,
-    ProviderMethod.SendTransaction
+    ProviderMethod.SendTransaction,
+    ProviderMethod.SignRequest
 ])
 
 // Methods a site may only call after the user has connected it.
 export const CONNECTED_METHODS: ReadonlySet<string> = new Set([
     ProviderMethod.SignMessage,
     ProviderMethod.SignTransaction,
-    ProviderMethod.SendTransaction
+    ProviderMethod.SendTransaction,
+    ProviderMethod.SignRequest
 ])
 
 export const ProviderErrorCode = {

@@ -22,6 +22,7 @@ import {
     type VfxAccount
 } from "~lib/provider/protocol"
 import type { ProviderRequestQueue } from "~lib/provider/requests"
+import { sanitizeSignRequestResult, validateSignRequestParams, type SignRequestParams } from "~lib/provider/signingRequest"
 import type { Network } from "~types/types"
 
 export interface ProviderHandlerDeps {
@@ -89,10 +90,13 @@ export class ProviderHandler {
             throw new ProviderError(ProviderErrorCode.Unauthorized, "Connect this site to the wallet first (vfx_connect)")
         }
 
+        const network = await this.deps.activeNetwork()
         const validated =
             method === ProviderMethod.SignMessage
                 ? validateSignMessageParams(params)
-                : validateTransactionParams(params, await this.deps.activeNetwork())
+                : method === ProviderMethod.SignRequest
+                  ? validateSignRequestParams(params, network)
+                  : validateTransactionParams(params, network)
 
         return this.awaitApproval(source, method, validated)
     }
@@ -137,6 +141,10 @@ export class ProviderHandler {
                 // The account comes from the key held here, not from the popup.
                 await this.deps.connections.connect(request.origin)
                 result = [account]
+            } else if (request.method === ProviderMethod.SignRequest) {
+                // Every signature is checked against the message the
+                // extension rebuilt from the request, for this account.
+                result = sanitizeSignRequestResult(request.params as SignRequestParams, answer.result, account.address)
             } else {
                 result = sanitizeResult(request.method, answer.result)
                 this.checkResultMatchesRequest(request.method, request.origin, request.params, result, account)
