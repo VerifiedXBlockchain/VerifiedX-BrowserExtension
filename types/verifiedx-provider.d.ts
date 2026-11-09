@@ -99,6 +99,33 @@ export interface VerifiedXSignRequestResult {
     }>
 }
 
+export interface VerifiedXBtcAccount {
+    /** Native SegWit (P2WPKH) address the wallet spends from. */
+    address: string
+    /** Compressed public key, hex. */
+    publicKey: string
+    network: VerifiedXNetwork
+}
+
+export interface VerifiedXSignPsbtParams {
+    /** Unsigned PSBT, base64 or hex. Every input needs witnessUtxo or nonWitnessUtxo. */
+    psbt: string
+    /** Finalise the signed inputs and return txHex when every input is then complete. */
+    finalize?: boolean
+    /** Input indexes to sign; every input the wallet owns when omitted. */
+    signInputs?: number[]
+    /** If given, the request fails with 4901 unless the extension is on this network. */
+    network?: VerifiedXNetwork
+}
+
+export interface VerifiedXSignPsbtResult {
+    /** The PSBT with the wallet's signatures (finalised inputs when finalize was set). */
+    psbt: string
+    signedInputs: number[]
+    txHex?: string
+    txid?: string
+}
+
 export interface VerifiedXRequestMap {
     vfx_connect: { params: undefined; result: VerifiedXAccount[] }
     vfx_getAccounts: { params: undefined; result: VerifiedXAccount[] }
@@ -107,6 +134,8 @@ export interface VerifiedXRequestMap {
     vfx_signTransaction: { params: VerifiedXTransactionRequest; result: VerifiedXSignTransactionResult }
     vfx_sendTransaction: { params: VerifiedXTransactionRequest; result: VerifiedXSendTransactionResult }
     vfx_signRequest: { params: VerifiedXSignRequestParams; result: VerifiedXSignRequestResult }
+    btc_getAccounts: { params: undefined; result: VerifiedXBtcAccount[] }
+    btc_signPsbt: { params: VerifiedXSignPsbtParams; result: VerifiedXSignPsbtResult }
 }
 
 export type VerifiedXMethod = keyof VerifiedXRequestMap
@@ -141,6 +170,8 @@ export interface VerifiedXProvider {
     signTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSignTransactionResult>
     sendTransaction(transaction: VerifiedXTransactionRequest): Promise<VerifiedXSendTransactionResult>
     signRequest(params: VerifiedXSignRequestParams): Promise<VerifiedXSignRequestResult>
+    getBtcAccounts(): Promise<VerifiedXBtcAccount[]>
+    signPsbt(params: VerifiedXSignPsbtParams): Promise<VerifiedXSignPsbtResult>
     /**
      * VerifiedX web wallet only (https://wallet.verifiedx.io for mainnet,
      * https://wallet-testnet.verifiedx.io for testnet). Rejects for any other

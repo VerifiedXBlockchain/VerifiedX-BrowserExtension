@@ -136,6 +136,15 @@
       return this.request({ method: 'vfx_signRequest', params });
     }
 
+    getBtcAccounts() {
+      return this.request({ method: 'btc_getAccounts' });
+    }
+
+    // { psbt, finalize?, signInputs?, network? }
+    signPsbt(params) {
+      return this.request({ method: 'btc_signPsbt', params });
+    }
+
     isReady() {
       return this._ready;
     }

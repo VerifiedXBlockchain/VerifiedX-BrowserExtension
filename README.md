@@ -28,6 +28,8 @@ Every method is available as `window.verifiedX.request({ method, params })` and 
 | `vfx_signTransaction` | `signTransaction(tx)` | Yes | `{ hash, transaction }`, signed and not sent |
 | `vfx_sendTransaction` | `sendTransaction(tx)` | Yes | `{ hash, status }`, where `status` is `"sent"` or `"unknown"` |
 | `vfx_signRequest` | `signRequest(params)` | Yes, one per user action | `{ flowId, signatures: [{ digestHex, signature, der }] }` |
+| `btc_getAccounts` | `getBtcAccounts()` | No | `[{ address, publicKey, network }]`, or `[]` if not connected, locked, or no Bitcoin wallet |
+| `btc_signPsbt` | `signPsbt(params)` | Yes | `{ psbt, signedInputs, txHex?, txid? }` |
 
 Signing methods need a connected site. A connection lasts until the site calls `disconnect()` or the wallet is removed from the extension. It covers both networks, and the site sees the account for the network the extension is on.
 
@@ -91,6 +93,10 @@ Before a popup opens, the extension rebuilds each message from the request's fie
 | `reserve-recovery` | `{signatureTime}{recoveryAddress}` |
 
 A digest without a request is refused, as are `message` requests (use `vfx_signMessage`, which prefixes the origin), privacy transaction types the extension cannot hash, and any other kind. Every item in one call must share a `flowId` and sign for the wallet's account on the active network. The popup shows each step decoded (amount, recipient, fee, type and data for a transaction; vault, ceremony and withdrawal details for the rest) and one approval signs them all.
+
+#### Bitcoin PSBTs
+
+`btc_signPsbt` signs a PSBT (base64 or hex) with the wallet's Bitcoin key. Testnet is the VerifiedX Bitcoin signet, which uses testnet address formats. Every input needs `witnessUtxo` or `nonWitnessUtxo`, and only `SIGHASH_ALL` is accepted. The popup lists every input and output, marking the wallet's own, and shows the amount leaving the wallet, the fee (with an approximate sat/vB rate) and the change. Only the wallet's P2WPKH inputs are signed (or the subset named in `signInputs`, which must all be the wallet's). With `finalize: true` the signed inputs are finalised, and when that completes the transaction, `txHex` and `txid` are returned. The extension does not broadcast.
 
 ### Errors
 

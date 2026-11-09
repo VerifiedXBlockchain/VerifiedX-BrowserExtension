@@ -1,12 +1,17 @@
-// vfx_signRequest through the background handler: what is refused before a
-// popup opens, what one approval covers, and what reaches the site.
+// vfx_signRequest and btc_signPsbt through the background handler: what is
+// refused before a popup opens, what one approval covers, and what reaches
+// the site.
 
+import * as ecc from "@bitcoinerlab/secp256k1"
+import * as bitcoin from "bitcoinjs-lib"
+import { ECPairFactory } from "ecpair"
 import { verifySignature, VfxClient } from "vfx-web-sdk"
 import { beforeEach, describe, expect, it } from "vitest"
 
 import { ConnectionStore, type KeyValueArea } from "~lib/provider/connections"
 import { ProviderHandler } from "~lib/provider/handler"
 import { ProviderErrorCode, ProviderMethod } from "~lib/provider/protocol"
+import { btcAccountFromWif, signPsbt, type SignPsbtParams } from "~lib/provider/psbt"
 import { ProviderRequestQueue } from "~lib/provider/requests"
 import { messageFor, sha256Hex, type SignRequestParams, type SignRequestResult } from "~lib/provider/signingRequest"
 import { createAccountFromSecret } from "~lib/utils"
@@ -16,6 +21,8 @@ const ORIGIN = "https://wallet-testnet.verifiedx.io"
 const client = new VfxClient(Network.Testnet)
 const PRIVATE_KEY = client.generatePrivateKey()
 const ACCOUNT = createAccountFromSecret(Network.Testnet, PRIVATE_KEY)
+const BTC_WIF = ECPairFactory(ecc).makeRandom({ network: bitcoin.networks.testnet }).toWIF()
+const BTC_ACCOUNT = btcAccountFromWif(BTC_WIF, Network.Testnet)
 const FLOW = "flow-0001"
 
 function memoryArea(): KeyValueArea {
@@ -28,7 +35,7 @@ function memoryArea(): KeyValueArea {
     }
 }
 
-function harness() {
+function harness(withBtc = true) {
     const queue = new ProviderRequestQueue()
     const connections = new ConnectionStore(memoryArea())
     const opened: string[] = []
@@ -45,7 +52,8 @@ function harness() {
         openApprovalWindow: async (requestId) => {
             opened.push(requestId)
             return windowId++
-        }
+        },
+        ...(withBtc && { btcAccount: async () => BTC_ACCOUNT })
     })
     return { handler, queue, opened }
 }
@@ -126,5 +134,54 @@ describe("vfx_signRequest", () => {
     it("leaves the existing methods as they were", async () => {
         const response = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.GetAccounts, null)
         expect(response.result).toEqual([{ address: ACCOUNT.address, publicKey: ACCOUNT.public, network: Network.Testnet }])
+    })
+})
+
+function walletPsbt(): string {
+    const network = bitcoin.networks.testnet
+    const psbt = new bitcoin.Psbt({ network })
+    psbt.addInput({
+        hash: "33".repeat(32),
+        index: 0,
+        witnessUtxo: { script: bitcoin.address.toOutputScript(BTC_ACCOUNT.address, network), value: 20_000 }
+    })
+    psbt.addOutput({ address: BTC_ACCOUNT.address, value: 19_000 })
+    return psbt.toBase64()
+}
+
+describe("btc_getAccounts and btc_signPsbt", () => {
+    it("returns the Bitcoin account to a connected site only", async () => {
+        const h = harness()
+        const before = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.BtcGetAccounts, null)
+        expect(before.result).toEqual([])
+        await connect(h)
+        const after = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.BtcGetAccounts, null)
+        expect(after.result).toEqual([BTC_ACCOUNT])
+    })
+
+    it("returns no Bitcoin account when the wallet has none", async () => {
+        const h = harness(false)
+        await connect(h)
+        const response = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.BtcGetAccounts, null)
+        expect(response.result).toEqual([])
+    })
+
+    it("signs a PSBT after approval and checks it in the background", async () => {
+        const h = harness()
+        await connect(h)
+        const { response, requestId } = await start(h, ProviderMethod.BtcSignPsbt, { psbt: walletPsbt(), finalize: true })
+        const params = h.queue.view(requestId).params as SignPsbtParams
+        await h.handler.handleApproval(requestId, { outcome: "approved", result: signPsbt(params, BTC_WIF) })
+        const result = (await response).result as { txHex: string; txid: string; signedInputs: number[] }
+        expect(result.signedInputs).toEqual([0])
+        expect(bitcoin.Transaction.fromHex(result.txHex).getId()).toBe(result.txid)
+    })
+
+    it("refuses an invalid PSBT before any popup opens", async () => {
+        const h = harness()
+        await connect(h)
+        const response = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.BtcSignPsbt, { psbt: "nope" })
+        expect(response.error?.code).toBe(ProviderErrorCode.InvalidParams)
+        expect(h.opened).toHaveLength(1)
     })
 })

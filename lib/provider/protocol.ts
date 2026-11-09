@@ -24,7 +24,10 @@ export const ProviderMethod = {
     SignTransaction: "vfx_signTransaction",
     SendTransaction: "vfx_sendTransaction",
     // SDK 9.1 Signer requests (lib/provider/signingRequest.ts).
-    SignRequest: "vfx_signRequest"
+    SignRequest: "vfx_signRequest",
+    BtcGetAccounts: "btc_getAccounts",
+    // Bitcoin PSBTs (lib/provider/psbt.ts).
+    BtcSignPsbt: "btc_signPsbt"
 } as const
 
 export type ProviderMethodName = (typeof ProviderMethod)[keyof typeof ProviderMethod]
@@ -35,7 +38,8 @@ export const APPROVAL_METHODS: ReadonlySet<string> = new Set([
     ProviderMethod.SignMessage,
     ProviderMethod.SignTransaction,
     ProviderMethod.SendTransaction,
-    ProviderMethod.SignRequest
+    ProviderMethod.SignRequest,
+    ProviderMethod.BtcSignPsbt
 ])
 
 // Methods a site may only call after the user has connected it.
@@ -43,7 +47,8 @@ export const CONNECTED_METHODS: ReadonlySet<string> = new Set([
     ProviderMethod.SignMessage,
     ProviderMethod.SignTransaction,
     ProviderMethod.SendTransaction,
-    ProviderMethod.SignRequest
+    ProviderMethod.SignRequest,
+    ProviderMethod.BtcSignPsbt
 ])
 
 export const ProviderErrorCode = {
