@@ -571,6 +571,28 @@ const TRANSACTION_TITLES: Record<string, string> = {
     FTKN_BURN: "Burn a token"
 }
 
+// Fungible-token transactions share a type (FTKN_TX) or reuse one
+// (TKNZ_MINT for a deploy); the contract function in Data says what they do.
+const TOKEN_FUNCTION_TITLES: Record<string, string> = {
+    "TokenDeploy()": "Deploy a token",
+    "TokenMint()": "Mint tokens",
+    "TokenTransfer()": "Transfer a token",
+    "TokenBurn()": "Burn tokens",
+    "TokenPause()": "Pause or resume a token",
+    "TokenBanAddress()": "Ban an address from a token",
+    "TokenContractOwnerChange()": "Change a token's owner",
+    "TokenVoteTopicCreate()": "Create a token voting topic",
+    "TokenVoteTopicCast()": "Vote on a token topic"
+}
+
+function tokenFunctionTitle(coreName: string, data: unknown): string | null {
+    if (!coreName.startsWith("FTKN_") && coreName !== "TKNZ_MINT") return null
+    const parsed = parseData(data)
+    const first = (Array.isArray(parsed) ? parsed[0] : parsed) as Record<string, unknown> | null
+    const fn = first && typeof first === "object" ? first.Function : undefined
+    return typeof fn === "string" ? (TOKEN_FUNCTION_TITLES[fn] ?? null) : null
+}
+
 export function describeSigningRequest(request: SupportedSigningRequest): SigningRequestDisplay {
     switch (request.kind) {
         case "transaction": {
@@ -590,7 +612,7 @@ export function describeSigningRequest(request: SupportedSigningRequest): Signin
             rows.push(...dataRows(tx.Data))
             rows.push({ label: "Hash", value: tx.Hash, mono: true })
             return {
-                title: TRANSACTION_TITLES[coreName] ?? `Sign a ${txTypeName(tx.TransactionType)} transaction`,
+                title: tokenFunctionTitle(coreName, tx.Data) ?? TRANSACTION_TITLES[coreName] ?? `Sign a ${txTypeName(tx.TransactionType)} transaction`,
                 rows,
                 ...(tx.Data !== null && { data: JSON.stringify(parseData(tx.Data), null, 2) })
             }

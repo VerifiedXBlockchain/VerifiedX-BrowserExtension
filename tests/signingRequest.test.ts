@@ -242,6 +242,18 @@ describe("decoding each request type", () => {
         expect(display.data).toContain("TransferCoin()")
     })
 
+    it("titles token transactions by their contract function, not their shared type", () => {
+        const title = (type: number, fn: string) => {
+            const item = txItem(transaction({ TransactionType: type, ToAddress: "Token_Base", Amount: 0, Data: [{ Function: fn, ContractUID: "a:1" }] }))
+            return describeSigningRequest(validateSignRequestParams(item, Network.Testnet).items[0].request).title
+        }
+        expect(title(TxType.TokenTx, "TokenBurn()")).toBe("Burn tokens")
+        expect(title(TxType.TokenTx, "TokenMint()")).toBe("Mint tokens")
+        expect(title(TxType.TokenTx, "TokenTransfer()")).toBe("Transfer a token")
+        expect(title(TxType.TokenDeploy, "TokenDeploy()")).toBe("Deploy a token")
+        expect(title(TxType.TokenTx, "Unknown()")).toBe("Transfer a token")
+    })
+
     it("a plain VFX send", () => {
         const { items } = validateSignRequestParams(txItem(), Network.Testnet)
         const display = describeSigningRequest(items[0].request)
