@@ -17,6 +17,8 @@ import { messageFor, sha256Hex, type SignRequestParams, type SignRequestResult }
 import { createAccountFromSecret } from "~lib/utils"
 import { Network } from "~types/types"
 
+import NFT_VECTORS from "./fixtures/nftSigningVectors.json"
+
 const ORIGIN = "https://wallet-testnet.verifiedx.io"
 const client = new VfxClient(Network.Testnet)
 const PRIVATE_KEY = client.generatePrivateKey()
@@ -130,6 +132,17 @@ describe("vfx_signRequest", () => {
         const signatures = [{ signature: client.getSignature("other", PRIVATE_KEY) }, { signature: client.getSignature("other", PRIVATE_KEY) }]
         await h.handler.handleApproval(requestId, { outcome: "approved", result: { signatures } })
         expect((await response).error?.message).toMatch(/does not verify/)
+    })
+
+    it("signs an address-free NFT request with the approving account", async () => {
+        const beacon = NFT_VECTORS.vectors.find((v) => v.request.kind === "nft-beacon-upload")!
+        const { response, requestId } = await start(h, ProviderMethod.SignRequest, beacon)
+        const params = h.queue.view(requestId).params as SignRequestParams
+        expect(params.signerAddress).toBeNull()
+        const signatures = [{ signature: client.getSignature(messageFor(params.items[0]), PRIVATE_KEY) }]
+        await h.handler.handleApproval(requestId, { outcome: "approved", result: { signatures } })
+        const result = (await response).result as SignRequestResult
+        expect(verifySignature(beacon.request.scIdentifier, result.signatures[0].signature, ACCOUNT.address)).toBe(true)
     })
 
     it("leaves the existing methods as they were", async () => {

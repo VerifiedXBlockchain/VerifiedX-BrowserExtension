@@ -13,6 +13,8 @@ import {
     validateSignRequestParams
 } from "~lib/provider/signingRequest"
 import { createAccountFromSecret } from "~lib/utils"
+
+import NFT_VECTORS from "./fixtures/nftSigningVectors.json"
 import { Network } from "~types/types"
 
 const client = new VfxClient(Network.Testnet)
@@ -166,7 +168,7 @@ describe("digest checks", () => {
         const message = "ab".repeat(32)
         const plain = { digestHex: sha256Hex(message), request: { kind: "message", flowId: FLOW, message } }
         expect(errorOf(() => validateSignRequestParams(plain, Network.Testnet)).message).toMatch(/vfx_signMessage/)
-        const unknown = { digestHex: sha256Hex(message), request: { kind: "spyglass-auth", flowId: FLOW, message } }
+        const unknown = { digestHex: sha256Hex(message), request: { kind: "token-approval", flowId: FLOW, message } }
         expect(errorOf(() => validateSignRequestParams(unknown, Network.Testnet)).message).toMatch(/Unsupported/)
     })
 
@@ -341,5 +343,99 @@ describe("result checks", () => {
     it("refuses when the wallet's account is not the one the request signs for", () => {
         const signatures = params.items.map((item) => sign(messageFor(item)))
         expect(() => sanitizeSignRequestResult(params, { signatures }, OTHER.address)).toThrow(/does not match/)
+    })
+})
+
+// Requests captured from vfx-web-sdk feat/nft-and-vault-recovery @2d4d633
+// (the web wallet's vendored build); see tests/fixtures/nftSigningVectors.json.
+describe("NFT and Spyglass requests (SDK @2d4d633)", () => {
+    const vector = (kind: string) => NFT_VECTORS.vectors.find((v) => v.request.kind === kind)!
+    // The time inside the captured proof and sign-in messages.
+    const NOW = 1_794_199_399
+    const sign = (message: string) => ({ signature: client.getSignature(message, PRIVATE_KEY) })
+    const withMessage = (kind: string, message: string) => ({
+        digestHex: sha256Hex(message),
+        request: { ...vector(kind).request, message }
+    })
+
+    it("accepts each kind exactly as the SDK sends it, signed by the approving account", () => {
+        for (const kind of ["nft-beacon-upload", "nft-ownership-proof", "spyglass-auth"]) {
+            const v = vector(kind)
+            expect(v.digestHex).toBe(sha256Hex(v.request.message))
+            const params = validateSignRequestParams(v, Network.Testnet, NOW)
+            expect(params.signerAddress).toBeNull()
+            expect(messageFor(params.items[0])).toBe(v.request.message)
+            const result = sanitizeSignRequestResult(params, { signatures: [sign(v.request.message)] }, ACCOUNT.address)
+            expect(result.signatures[0].digestHex).toBe(v.digestHex)
+        }
+    })
+
+    it("nft-beacon-upload: the message must be exactly the contract id", () => {
+        const v = vector("nft-beacon-upload")
+        expect(v.request.message).toBe(v.request.scIdentifier)
+        const other = withMessage("nft-beacon-upload", `${v.request.scIdentifier} `)
+        expect(errorOf(() => validateSignRequestParams(other, Network.Testnet, NOW)).message).toMatch(/message does not match/)
+        const retargeted = { ...v, request: { ...v.request, scIdentifier: "other:1" } }
+        expect(errorOf(() => validateSignRequestParams(retargeted, Network.Testnet, NOW)).code).toBe(ProviderErrorCode.InvalidParams)
+        const badRecipient = { ...v, request: { ...v.request, toAddress: "not-an-address" } }
+        expect(errorOf(() => validateSignRequestParams(badRecipient, Network.Testnet, NOW)).code).toBe(ProviderErrorCode.InvalidParams)
+        expect(describeSigningRequest(validateSignRequestParams(v, Network.Testnet, NOW).items[0].request).rows).toEqual(
+            expect.arrayContaining([{ label: "Files go to", value: v.request.toAddress, mono: true }])
+        )
+    })
+
+    it("nft-ownership-proof and spyglass-auth: only <nonce>.<unix time> in the SDK's shape", () => {
+        for (const message of ["hello", "LGQBXuiP.", "LGQBXuiP.17941993x9", "LGQBXui.1794199399", "LGQBXuiP1.1794199399", "ab".repeat(32)]) {
+            const item = withMessage("nft-ownership-proof", message)
+            expect(errorOf(() => validateSignRequestParams(item, Network.Testnet, NOW)).code).toBe(ProviderErrorCode.InvalidParams)
+        }
+        // A proof-shaped message is not a sign-in message, and the reverse.
+        expect(errorOf(() => validateSignRequestParams(withMessage("spyglass-auth", "LGQBXuiP.1794199399"), Network.Testnet, NOW)).code).toBe(
+            ProviderErrorCode.InvalidParams
+        )
+        expect(
+            errorOf(() => validateSignRequestParams(withMessage("nft-ownership-proof", "hBMcrNsfMhsodzcn.1794199399"), Network.Testnet, NOW)).code
+        ).toBe(ProviderErrorCode.InvalidParams)
+    })
+
+    it("refuses a proof or sign-in more than 10 minutes from the extension's clock", () => {
+        for (const kind of ["nft-ownership-proof", "spyglass-auth"]) {
+            const v = vector(kind)
+            expect(validateSignRequestParams(v, Network.Testnet, NOW + 600).items).toHaveLength(1)
+            expect(validateSignRequestParams(v, Network.Testnet, NOW - 600).items).toHaveLength(1)
+            expect(errorOf(() => validateSignRequestParams(v, Network.Testnet, NOW + 601)).message).toMatch(/10 minutes/)
+            expect(errorOf(() => validateSignRequestParams(v, Network.Testnet, NOW - 601)).message).toMatch(/10 minutes/)
+        }
+    })
+
+    it("spyglass-auth is never batched with anything else", () => {
+        const auth = vector("spyglass-auth")
+        const proof = { ...vector("nft-ownership-proof"), request: { ...vector("nft-ownership-proof").request, flowId: auth.request.flowId } }
+        const batch = { items: [auth, proof] }
+        expect(errorOf(() => validateSignRequestParams(batch, Network.Testnet, NOW)).message).toMatch(/on its own/)
+        expect(errorOf(() => validateSignRequestParams({ items: [auth, auth] }, Network.Testnet, NOW)).message).toMatch(/on its own/)
+    })
+
+    it("an address-free item in a batch still binds to the batch's account", () => {
+        const tx = txItem()
+        const beacon = { ...vector("nft-beacon-upload"), request: { ...vector("nft-beacon-upload").request, flowId: FLOW } }
+        const params = validateSignRequestParams({ items: [beacon, tx] }, Network.Testnet, NOW)
+        expect(params.signerAddress).toBe(ACCOUNT.address)
+        const signatures = params.items.map((item) => sign(messageFor(item)))
+        expect(() => sanitizeSignRequestResult(params, { signatures }, OTHER.address)).toThrow(/does not match/)
+    })
+
+    it("refuses a signature by any account other than the approving one", () => {
+        const v = vector("spyglass-auth")
+        const params = validateSignRequestParams(v, Network.Testnet, NOW)
+        const otherKey = client.generatePrivateKey()
+        const forged = { signature: client.getSignature(v.request.message, otherKey) }
+        expect(() => sanitizeSignRequestResult(params, { signatures: [forged] }, ACCOUNT.address)).toThrow(/does not verify/)
+    })
+
+    it("titles each kind for the popup", () => {
+        expect(describeFlow(validateSignRequestParams(vector("nft-beacon-upload"), Network.Testnet, NOW).items)).toMatch(/NFT's files/)
+        expect(describeFlow(validateSignRequestParams(vector("nft-ownership-proof"), Network.Testnet, NOW).items)).toMatch(/own an NFT/)
+        expect(describeFlow(validateSignRequestParams(vector("spyglass-auth"), Network.Testnet, NOW).items)).toBe("Sign in to Spyglass")
     })
 })

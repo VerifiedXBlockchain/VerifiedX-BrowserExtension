@@ -1,0 +1,33 @@
+{
+  "sdk": "vfx-web-sdk feat/nft-and-vault-recovery @2d4d633 (vfx-web-wallet vendor tgz)",
+  "address": "xMibcGwt2iWQdqPBzKjXwdPPZKbs5zY1dM",
+  "vectors": [
+    {
+      "digestHex": "5b8f8ba1f0edc4a42f7bea46fca86fcc3ecf361bf19a81197c7eb355ff626232",
+      "request": {
+        "kind": "nft-beacon-upload",
+        "flowId": "flow-nft-transfer",
+        "message": "8a3c2f0e6b1d4f7a9c2e5b8d1f4a7c0e:1762659000",
+        "scIdentifier": "8a3c2f0e6b1d4f7a9c2e5b8d1f4a7c0e:1762659000",
+        "toAddress": "x8ef7BErCHF3HQDbmWmCPZ3Dg2LG6jiWRS"
+      }
+    },
+    {
+      "digestHex": "fab47c08c09727d32abaf211ff36205d9c3ec12de07d1cc3e6346e1d11d1b783",
+      "request": {
+        "kind": "nft-ownership-proof",
+        "flowId": "4cd82c9ff16700a21202eb5f",
+        "message": "LGQBXuiP.1794199399",
+        "scIdentifier": "8a3c2f0e6b1d4f7a9c2e5b8d1f4a7c0e:1762659000"
+      }
+    },
+    {
+      "digestHex": "10eeae5f8e43a287014177702c9c14c6c8d2c8345fa8721f750b79e96aead177",
+      "request": {
+        "kind": "spyglass-auth",
+        "flowId": "a3ac9d27ea700845f2783327",
+        "message": "hBMcrNsfMhsodzcn.1794199399"
+      }
+    }
+  ]
+}

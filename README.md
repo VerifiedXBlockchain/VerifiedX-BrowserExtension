@@ -92,8 +92,13 @@ Before a popup opens, the extension rebuilds each message from the request's fie
 | `frost-withdrawal` | The same, with session `{sessionId}:i{inputIndex}` for extra inputs |
 | `vbtc-ownership` | owner, name, description, ticker, ceremony id, timestamp and unique id, concatenated |
 | `reserve-recovery` | `{signatureTime}{recoveryAddress}` |
+| `nft-beacon-upload` | Exactly `scIdentifier` (asks the node to push the NFT's files to `toAddress`) |
+| `nft-ownership-proof` | `message` itself, which must be 8 letters, a dot and a Unix time within 10 minutes of the extension's clock |
+| `spyglass-auth` | `message` itself, which must be 16 letters, a dot and a Unix time within 10 minutes of the extension's clock |
 
 A digest without a request is refused, as are `message` requests (use `vfx_signMessage`, which prefixes the origin), privacy transaction types the extension cannot hash, and any other kind. Every item in one call must share a `flowId` and sign for the wallet's account on the active network. The popup shows each step decoded (amount, recipient, fee, type and data for a transaction; vault, ceremony and withdrawal details for the rest) and one approval signs them all.
+
+The three NFT kinds follow vfx-web-sdk `feat/nft-and-vault-recovery` @2d4d633. They name no address, so the account that approves them signs. A `spyglass-auth` request gets the site a one-hour Spyglass session that can change the account's NFT media: it must come on its own (never in a batch), and its popup shows the requesting site and enables Approve only after the user ticks an acknowledgement.
 
 #### Bitcoin PSBTs
 

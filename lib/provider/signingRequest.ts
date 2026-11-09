@@ -50,10 +50,31 @@ export const SIGNING_REQUEST_KINDS = [
     "vbtc-ceremony",
     "vbtc-ownership",
     "frost-withdrawal",
-    "reserve-recovery"
+    "reserve-recovery",
+    "nft-beacon-upload",
+    "nft-ownership-proof",
+    "spyglass-auth"
 ] as const
 
-export type SupportedSigningRequest = Extract<SigningRequest, { kind: (typeof SIGNING_REQUEST_KINDS)[number] }>
+// NFT and Spyglass requests, pinned to vfx-web-sdk
+// feat/nft-and-vault-recovery @2d4d633 (not yet in the SDK this extension
+// builds against). Their messages carry no address: they are signed by the
+// account that approves them.
+type NftSigningRequest =
+    | { kind: "nft-beacon-upload"; flowId: string; message: string; scIdentifier: string; toAddress: string }
+    | { kind: "nft-ownership-proof"; flowId: string; message: string; scIdentifier: string }
+    | { kind: "spyglass-auth"; flowId: string; message: string }
+
+export type SupportedSigningRequest =
+    | Extract<SigningRequest, { kind: "transaction" | "vbtc-ceremony" | "vbtc-ownership" | "frost-withdrawal" | "reserve-recovery" }>
+    | NftSigningRequest
+
+// "<nonce>.<unix seconds>" as the SDK builds them: 8 letters for an ownership
+// proof, 16 for a Spyglass session.
+const OWNERSHIP_PROOF_MESSAGE = /^[A-Za-z]{8}\.(\d{9,11})$/
+const SPYGLASS_AUTH_MESSAGE = /^[A-Za-z]{16}\.(\d{9,11})$/
+// How far a timed message's clock may be from the extension's.
+export const MESSAGE_TIME_WINDOW_SECONDS = 10 * 60
 
 export interface SigningItem {
     digestHex: string
@@ -63,8 +84,9 @@ export interface SigningItem {
 // Validated vfx_signRequest parameters.
 export interface SignRequestParams {
     flowId: string
-    // The one VFX address every item signs for.
-    signerAddress: string
+    // The one VFX address every item signs for, or null when no item names one
+    // (NFT and Spyglass messages), in which case the approving account signs.
+    signerAddress: string | null
     items: SigningItem[]
 }
 
@@ -174,7 +196,7 @@ function validateTransaction(raw: unknown): SigningTransaction {
 // Rebuilds one request from an explicit field list for its kind (so nothing
 // else the page attached reaches the popup), and returns it with the message
 // the extension itself computed from those fields.
-export function rebuildSigningRequest(raw: unknown): { request: SupportedSigningRequest; message: string; signer: string } {
+export function rebuildSigningRequest(raw: unknown): { request: SupportedSigningRequest; message: string; signer: string | null } {
     const value = raw as Record<string, unknown> | null
     if (!value || typeof value !== "object" || Array.isArray(value)) invalid("request must be an object")
 
@@ -291,6 +313,35 @@ export function rebuildSigningRequest(raw: unknown): { request: SupportedSigning
             }
         }
 
+        case "nft-beacon-upload": {
+            const request: SupportedSigningRequest = {
+                kind: "nft-beacon-upload",
+                flowId,
+                message,
+                scIdentifier: requireString(value.scIdentifier, "request.scIdentifier", ID_PATTERN),
+                toAddress: requireAddress(value.toAddress, "request.toAddress")
+            }
+            // The owner signs the contract id itself (SDK transferNft).
+            return { request, message: request.scIdentifier, signer: null }
+        }
+
+        case "nft-ownership-proof": {
+            if (!OWNERSHIP_PROOF_MESSAGE.test(message)) invalid("An ownership proof message must be <8 letters>.<unix time>")
+            const request: SupportedSigningRequest = {
+                kind: "nft-ownership-proof",
+                flowId,
+                message,
+                scIdentifier: requireString(value.scIdentifier, "request.scIdentifier", ID_PATTERN)
+            }
+            return { request, message, signer: null }
+        }
+
+        case "spyglass-auth": {
+            if (!SPYGLASS_AUTH_MESSAGE.test(message)) invalid("A Spyglass sign-in message must be <16 letters>.<unix time>")
+            const request: SupportedSigningRequest = { kind: "spyglass-auth", flowId, message }
+            return { request, message, signer: null }
+        }
+
         case "message":
             invalid("Plain messages are not signed through vfx_signRequest; use vfx_signMessage, which prefixes the site's origin")
 
@@ -303,7 +354,11 @@ export function rebuildSigningRequest(raw: unknown): { request: SupportedSigning
 // { flowId?, items: [{ digestHex, request }, ...] } for one user action that
 // needs several. Every item must share one flowId and sign for one address
 // on the active network.
-export function validateSignRequestParams(params: unknown, activeNetwork: Network): SignRequestParams {
+export function validateSignRequestParams(
+    params: unknown,
+    activeNetwork: Network,
+    nowSeconds: number = Math.floor(Date.now() / 1000)
+): SignRequestParams {
     const value = params as Record<string, unknown> | null
     if (!value || typeof value !== "object" || Array.isArray(value)) invalid("Expected { digestHex, request } or { items }")
 
@@ -334,19 +389,33 @@ export function validateSignRequestParams(params: unknown, activeNetwork: Networ
                 `items[${index}]: the digest does not match the request; refusing to sign`
             )
         }
-        if (signerAddress === null) {
-            signerAddress = signer
-        } else if (signer !== signerAddress) {
-            invalid("Every signature in one request must be for the same address")
+        if (request.kind === "nft-ownership-proof" || request.kind === "spyglass-auth") {
+            const signedAt = Number(message.slice(message.lastIndexOf(".") + 1))
+            if (Math.abs(signedAt - nowSeconds) > MESSAGE_TIME_WINDOW_SECONDS) {
+                invalid(`items[${index}]: the message's time is more than ${MESSAGE_TIME_WINDOW_SECONDS / 60} minutes from now`)
+            }
+        }
+        if (signer !== null) {
+            if (signerAddress === null) {
+                signerAddress = signer
+            } else if (signer !== signerAddress) {
+                invalid("Every signature in one request must be for the same address")
+            }
         }
         items.push({ digestHex, request })
+    }
+
+    // A Spyglass session token lets the site act as the account on Spyglass,
+    // so it is never folded into a batch with anything else.
+    if (items.length > 1 && items.some((item) => item.request.kind === "spyglass-auth")) {
+        invalid("A Spyglass sign-in must be requested on its own")
     }
 
     const flowId = items[0].request.flowId
     if (items.some((item) => item.request.flowId !== flowId)) invalid("Every item in a batch must share one flowId")
     if (value.flowId !== undefined && value.flowId !== flowId) invalid("flowId does not match the items")
 
-    if (!validateVfxAddress(signerAddress, activeNetwork) || signerAddress.startsWith("xRBX")) {
+    if (signerAddress !== null && (!validateVfxAddress(signerAddress, activeNetwork) || signerAddress.startsWith("xRBX"))) {
         throw new ProviderError(
             ProviderErrorCode.WrongNetwork,
             `${signerAddress} is not a ${activeNetwork} account; switch networks in the extension to continue`
@@ -375,7 +444,7 @@ export function sanitizeSignRequestResult(params: SignRequestParams, raw: unknow
     if (!signatures || signatures.length !== params.items.length) {
         throw new ProviderError(ProviderErrorCode.Internal, "Wrong number of signatures in result")
     }
-    if (params.signerAddress !== address) {
+    if (params.signerAddress !== null && params.signerAddress !== address) {
         throw new ProviderError(ProviderErrorCode.Internal, "The result does not match the request")
     }
     return {
@@ -528,6 +597,32 @@ export function describeSigningRequest(request: SupportedSigningRequest): Signin
                     { label: "Reserve account", value: request.reserveAddress, mono: true },
                     { label: "Funds go to", value: request.recoveryAddress, mono: true },
                     { label: "Signed at", value: formatTime(request.signatureTime) }
+                ]
+            }
+        case "nft-beacon-upload":
+            return {
+                title: "Send an NFT's files to its new owner",
+                rows: [
+                    { label: "NFT", value: request.scIdentifier, mono: true },
+                    { label: "Files go to", value: request.toAddress, mono: true },
+                    { label: "Message signed", value: request.message, mono: true }
+                ]
+            }
+        case "nft-ownership-proof":
+            return {
+                title: "Prove you own an NFT",
+                rows: [
+                    { label: "NFT", value: request.scIdentifier, mono: true },
+                    { label: "Message signed", value: request.message, mono: true },
+                    { label: "Time", value: formatTime(Number(request.message.split(".")[1])) }
+                ]
+            }
+        case "spyglass-auth":
+            return {
+                title: "Sign in to Spyglass",
+                rows: [
+                    { label: "Message signed", value: request.message, mono: true },
+                    { label: "Time", value: formatTime(Number(request.message.split(".")[1])) }
                 ]
             }
     }

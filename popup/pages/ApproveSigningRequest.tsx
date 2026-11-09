@@ -30,8 +30,12 @@ interface ApproveSigningRequestProps {
 export default function ApproveSigningRequest({ request, network, account, finish, error }: ApproveSigningRequestProps) {
     const [processing, setProcessing] = useState(false)
     const params = request.params as SignRequestParams
+    // A Spyglass sign-in is always its own request (validateSignRequestParams)
+    // and needs an explicit acknowledgement before Approve is enabled.
+    const spyglassSignIn = params.items.some((item) => item.request.kind === "spyglass-auth")
+    const [acknowledged, setAcknowledged] = useState(false)
     const blocked =
-        params.signerAddress !== account.address
+        params.signerAddress !== null && params.signerAddress !== account.address
             ? `This request is for ${params.signerAddress}, which is not the wallet's ${network} account.`
             : ""
 
@@ -63,6 +67,30 @@ export default function ApproveSigningRequest({ request, network, account, finis
             </h1>
 
             <RequestSite origin={request.origin} accountLabel={`Account (${network})`} address={account.address} />
+
+            {spyglassSignIn && (
+                <div className="border border-red-500 bg-red-950/60 rounded-lg p-4 space-y-2 text-sm" data-testid="spyglass-auth-warning">
+                    <p className="font-semibold text-red-300">This site is asking to sign in to Spyglass as you</p>
+                    <p className="font-mono text-base break-all text-white" data-testid="spyglass-auth-origin">
+                        {request.origin}
+                    </p>
+                    <p className="text-gray-200">
+                        The signature gets this site a Spyglass session for {account.address}. For about an hour it
+                        can change the media (images and files) Spyglass shows for this account's NFTs. It cannot move
+                        funds or NFTs.
+                    </p>
+                    <label className="flex items-start space-x-2 pt-1">
+                        <input
+                            type="checkbox"
+                            checked={acknowledged}
+                            onChange={(e) => setAcknowledged(e.target.checked)}
+                            data-testid="spyglass-auth-ack"
+                            className="mt-1"
+                        />
+                        <span>I trust {request.origin} to manage this account's NFT media.</span>
+                    </label>
+                </div>
+            )}
 
             {steps.length > 1 && (
                 <p className="text-sm text-gray-300" data-testid="flow-steps">
@@ -115,7 +143,7 @@ export default function ApproveSigningRequest({ request, network, account, finis
                 </button>
                 <button
                     onClick={handleApprove}
-                    disabled={processing || !!blocked}
+                    disabled={processing || !!blocked || (spyglassSignIn && !acknowledged)}
                     data-testid="approve"
                     className="flex-1 bg-blue-600 hover:bg-blue-500 p-3 rounded font-semibold disabled:opacity-50">
                     {processing ? "Working..." : steps.length > 1 ? `Approve all ${steps.length}` : "Approve"}
