@@ -156,12 +156,12 @@ function IndexPopup() {
   }
 
   if (screen == "Booting") {
-    return <div className="bg-gray-950 w-96 min-h-56 text-white"></div>
+    return <div className="bg-gray-950 w-96 max-w-full min-h-56 text-white"></div>
 
   }
 
   return (
-    <div className="relative bg-gray-950 w-96 text-white">
+    <div className="relative bg-gray-950 w-96 max-w-full text-white">
       {screen !== "Home" && (
         <>
           {!providerRequestId && !keyshareRequestId && (
