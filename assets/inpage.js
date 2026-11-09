@@ -130,6 +130,26 @@
       return this.request({ method: 'vfx_sendTransaction', params: transaction });
     }
 
+    // { digestHex, request } or { flowId, items: [{ digestHex, request }] }
+    // from a vfx-web-sdk Signer (signDigest / signBatch).
+    signRequest(params) {
+      return this.request({ method: 'vfx_signRequest', params });
+    }
+
+    // { version, methods }; needs no connection and opens no popup.
+    getCapabilities() {
+      return this.request({ method: 'vfx_getCapabilities' });
+    }
+
+    getBtcAccounts() {
+      return this.request({ method: 'btc_getAccounts' });
+    }
+
+    // { psbt, finalize?, signInputs?, network? }
+    signPsbt(params) {
+      return this.request({ method: 'btc_signPsbt', params });
+    }
+
     isReady() {
       return this._ready;
     }

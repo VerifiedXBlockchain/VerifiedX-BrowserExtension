@@ -22,24 +22,44 @@ export const ProviderMethod = {
     Disconnect: "vfx_disconnect",
     SignMessage: "vfx_signMessage",
     SignTransaction: "vfx_signTransaction",
-    SendTransaction: "vfx_sendTransaction"
+    SendTransaction: "vfx_sendTransaction",
+    // SDK 9.1 Signer requests (lib/provider/signingRequest.ts).
+    SignRequest: "vfx_signRequest",
+    BtcGetAccounts: "btc_getAccounts",
+    // Bitcoin PSBTs (lib/provider/psbt.ts).
+    BtcSignPsbt: "btc_signPsbt",
+    // What this extension supports, so a site can feature-detect.
+    GetCapabilities: "vfx_getCapabilities"
 } as const
 
 export type ProviderMethodName = (typeof ProviderMethod)[keyof typeof ProviderMethod]
+
+// Every method request() accepts, in the order vfx_getCapabilities lists them.
+export const SUPPORTED_METHODS: readonly ProviderMethodName[] = Object.values(ProviderMethod)
+
+export interface CapabilitiesResult {
+    // The extension's manifest version.
+    version: string
+    methods: ProviderMethodName[]
+}
 
 // Methods that open an approval popup.
 export const APPROVAL_METHODS: ReadonlySet<string> = new Set([
     ProviderMethod.Connect,
     ProviderMethod.SignMessage,
     ProviderMethod.SignTransaction,
-    ProviderMethod.SendTransaction
+    ProviderMethod.SendTransaction,
+    ProviderMethod.SignRequest,
+    ProviderMethod.BtcSignPsbt
 ])
 
 // Methods a site may only call after the user has connected it.
 export const CONNECTED_METHODS: ReadonlySet<string> = new Set([
     ProviderMethod.SignMessage,
     ProviderMethod.SignTransaction,
-    ProviderMethod.SendTransaction
+    ProviderMethod.SendTransaction,
+    ProviderMethod.SignRequest,
+    ProviderMethod.BtcSignPsbt
 ])
 
 export const ProviderErrorCode = {

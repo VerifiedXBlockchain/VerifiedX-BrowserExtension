@@ -12,8 +12,10 @@ import {
     ProviderErrorCode,
     ProviderMethod,
     sanitizeResult,
+    SUPPORTED_METHODS,
     validateSignMessageParams,
     validateTransactionParams,
+    type CapabilitiesResult,
     type ProviderResponse,
     type SignMessageParams,
     type SignMessageResult,
@@ -21,7 +23,9 @@ import {
     type TransactionRequest,
     type VfxAccount
 } from "~lib/provider/protocol"
+import { sanitizeSignPsbtResult, validateSignPsbtParams, type BtcAccount, type SignPsbtParams } from "~lib/provider/psbt"
 import type { ProviderRequestQueue } from "~lib/provider/requests"
+import { sanitizeSignRequestResult, validateSignRequestParams, type SignRequestParams } from "~lib/provider/signingRequest"
 import type { Network } from "~types/types"
 
 export interface ProviderHandlerDeps {
@@ -33,6 +37,12 @@ export interface ProviderHandlerDeps {
     deriveAccount: (network: Network, privateKey: string) => VfxAccount
     // Opens the approval popup for a request; resolves to its window id.
     openApprovalWindow: (requestId: string) => Promise<number>
+    // The wallet's Bitcoin account on a network, or null when it has none.
+    // Without it, btc_getAccounts returns [] and btc_signPsbt cannot be
+    // approved.
+    btcAccount?: (network: Network, privateKey: string) => Promise<BtcAccount | null>
+    // The extension's manifest version, reported by vfx_getCapabilities.
+    extensionVersion: () => string
 }
 
 export interface RequestSource {
@@ -55,6 +65,12 @@ export class ProviderHandler {
         return this.deps.deriveAccount(await this.deps.activeNetwork(), key)
     }
 
+    private async currentBtcAccount(): Promise<BtcAccount | null> {
+        const key = this.deps.unlockedKey()
+        if (!key || !this.deps.btcAccount) return null
+        return this.deps.btcAccount(await this.deps.activeNetwork(), key)
+    }
+
     async handleRequest(source: RequestSource, method: unknown, params: unknown): Promise<ProviderResponse> {
         try {
             return { ok: true, result: await this.dispatch(source, method, params) }
@@ -68,8 +84,16 @@ export class ProviderHandler {
         const connected = await connections.isConnected(source.origin)
 
         switch (method) {
+            case ProviderMethod.GetCapabilities: {
+                const capabilities: CapabilitiesResult = { version: this.deps.extensionVersion(), methods: [...SUPPORTED_METHODS] }
+                return capabilities
+            }
             case ProviderMethod.GetAccounts: {
                 const account = connected ? await this.currentAccount() : null
+                return account ? [account] : []
+            }
+            case ProviderMethod.BtcGetAccounts: {
+                const account = connected ? await this.currentBtcAccount() : null
                 return account ? [account] : []
             }
             case ProviderMethod.Disconnect:
@@ -89,10 +113,15 @@ export class ProviderHandler {
             throw new ProviderError(ProviderErrorCode.Unauthorized, "Connect this site to the wallet first (vfx_connect)")
         }
 
+        const network = await this.deps.activeNetwork()
         const validated =
             method === ProviderMethod.SignMessage
                 ? validateSignMessageParams(params)
-                : validateTransactionParams(params, await this.deps.activeNetwork())
+                : method === ProviderMethod.SignRequest
+                  ? validateSignRequestParams(params, network)
+                  : method === ProviderMethod.BtcSignPsbt
+                    ? validateSignPsbtParams(params, network)
+                    : validateTransactionParams(params, network)
 
         return this.awaitApproval(source, method, validated)
     }
@@ -137,6 +166,17 @@ export class ProviderHandler {
                 // The account comes from the key held here, not from the popup.
                 await this.deps.connections.connect(request.origin)
                 result = [account]
+            } else if (request.method === ProviderMethod.SignRequest) {
+                // Every signature is checked against the message the
+                // extension rebuilt from the request, for this account.
+                result = sanitizeSignRequestResult(request.params as SignRequestParams, answer.result, account.address)
+            } else if (request.method === ProviderMethod.BtcSignPsbt) {
+                const params = request.params as SignPsbtParams
+                const btcAccount = await this.currentBtcAccount()
+                if (!btcAccount || btcAccount.network !== params.network) {
+                    throw new ProviderError(ProviderErrorCode.Internal, "The wallet has no Bitcoin account on this network")
+                }
+                result = sanitizeSignPsbtResult(params, answer.result, btcAccount.publicKey)
             } else {
                 result = sanitizeResult(request.method, answer.result)
                 this.checkResultMatchesRequest(request.method, request.origin, request.params, result, account)

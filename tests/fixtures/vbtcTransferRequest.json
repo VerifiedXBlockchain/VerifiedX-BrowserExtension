@@ -1,0 +1,22 @@
+{
+  "source": "vfx-web-sdk (wallet vendor) transferVbtc, testnet /vbtc-v2/transfer/prepare, 2026-11-09; the node's Fee preimage text is 0.00001040",
+  "digestHex": "ce4db0d5bcd37c5f5813d69f03e9af81b1e9d434e05dd13ffd20cd6aef19c03d",
+  "request": {
+    "kind": "transaction",
+    "flowId": "3eb5c06bfdcd7b237326ce3c",
+    "message": "97153cebfb88767ab827ebee2f7e79dd38f2db3d0a478506fe42d8fdbf8be50e",
+    "transaction": {
+      "Hash": "97153cebfb88767ab827ebee2f7e79dd38f2db3d0a478506fe42d8fdbf8be50e",
+      "FromAddress": "xAExuj1TsdqzSJKQEYVZYfJ48rh4dYGpaw",
+      "ToAddress": "x8ef7BErCHF3HQDbmWmCPZ3Dg2LG6jiWRS",
+      "TransactionType": 26,
+      "Amount": 0,
+      "Fee": 1.04e-05,
+      "Nonce": 16,
+      "Timestamp": 1794214599,
+      "Data": "{\"Function\":\"TransferVBTCV2()\",\"ContractUID\":\"4f74b39c45434031a2e5ed9a7c593474:1794209925\",\"FromAddress\":\"xAExuj1TsdqzSJKQEYVZYfJ48rh4dYGpaw\",\"ToAddress\":\"x8ef7BErCHF3HQDbmWmCPZ3Dg2LG6jiWRS\",\"Amount\":0.0001}",
+      "UnlockTime": null
+    },
+    "hashSource": "prepared"
+  }
+}

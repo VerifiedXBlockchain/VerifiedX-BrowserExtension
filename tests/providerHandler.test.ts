@@ -61,6 +61,7 @@ function harness(): Harness {
         queue,
         connections,
         unlockedKey: () => key,
+        extensionVersion: () => "1.2.3",
         activeNetwork: async () => network.value,
         deriveAccount: (net, privateKey) => {
             const account = createAccountFromSecret(net, privateKey)
@@ -242,6 +243,41 @@ describe("approval binding and lifetime", () => {
             expect(response.error?.code).toBe(ProviderErrorCode.UnsupportedMethod)
         }
         expect(h.opened).toHaveLength(0)
+    })
+})
+
+describe("getCapabilities", () => {
+    let h: Harness
+    beforeEach(() => {
+        h = harness()
+    })
+
+    it("lists every supported method and the version to any site, without a popup", async () => {
+        const response = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.GetCapabilities, undefined)
+        expect(response.ok).toBe(true)
+        const result = response.result as { version: string; methods: string[] }
+        expect(result.version).toBe("1.2.3")
+        expect(result.methods).toEqual(expect.arrayContaining(["vfx_connect", "vfx_signRequest", "btc_getAccounts", "btc_signPsbt", "vfx_getCapabilities"]))
+        expect(Object.keys(result).sort()).toEqual(["methods", "version"])
+        expect(h.opened).toHaveLength(0)
+    })
+
+    it("lists only methods request() accepts", async () => {
+        const response = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.GetCapabilities, undefined)
+        const { methods } = response.result as { methods: string[] }
+        // A supported method either answers or waits on its popup; only an
+        // unknown one comes back with 4200.
+        for (const method of methods) {
+            const answer = await Promise.race([h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, method, null), tick().then(() => null)])
+            expect(answer?.error?.code, method).not.toBe(ProviderErrorCode.UnsupportedMethod)
+        }
+        expect(methods).not.toContain("vfx_requestKey")
+    })
+
+    it("works while the wallet is locked", async () => {
+        h.lock()
+        const response = await h.handler.handleRequest({ origin: ORIGIN, tabId: 1 }, ProviderMethod.GetCapabilities, undefined)
+        expect((response.result as { version: string }).version).toBe("1.2.3")
     })
 })
 

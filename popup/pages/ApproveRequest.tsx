@@ -18,6 +18,8 @@ import {
 import type { ProviderRequestView } from "~lib/provider/requests"
 import { addPendingTransaction, getUncertainSend, setUncertainSend } from "~lib/secureStorage"
 import { broadcastTransaction, prepareTransaction, signPreparedTransaction, type PreparedTransaction } from "~lib/vfxTransaction"
+import ApprovePsbt from "~popup/pages/ApprovePsbt"
+import ApproveSigningRequest from "~popup/pages/ApproveSigningRequest"
 import type { Account, Network } from "~types/types"
 
 interface ApproveRequestProps {
@@ -219,6 +221,13 @@ export default function ApproveRequest({ requestId, network, account }: ApproveR
                 </button>
             </div>
         )
+    }
+
+    if (request.method === ProviderMethod.SignRequest) {
+        return <ApproveSigningRequest request={request} network={network} account={account} finish={finish} error={error} />
+    }
+    if (request.method === ProviderMethod.BtcSignPsbt) {
+        return <ApprovePsbt request={request} network={network} finish={finish} error={error} />
     }
 
     const tx = isTransaction ? (request.params as TransactionRequest) : null

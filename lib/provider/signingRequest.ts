@@ -1,0 +1,759 @@
+// vfx_signRequest: structured signing for SDK 9.1 Signer clients.
+//
+// The SDK hands a Signer the SHA-256 digest of each message it needs signed,
+// together with a typed SigningRequest that says what the message is. A site
+// forwards both. Before a popup opens, the extension rebuilds the message
+// from the request's fields (a transaction from its fields with the SDK's
+// port of Core's hash, a ceremony or FROST message from Core's format),
+// checks that the digest is SHA-256 of that message, and refuses anything
+// that does not match. The popup then shows the decoded request, and only
+// what it showed is signed. A digest with no request, or a request of a kind
+// the extension cannot rebuild, is refused: there is no blind signing.
+//
+// Pure, so it can be unit tested.
+
+import CryptoJS from "crypto-js"
+import {
+    canHashLocally,
+    coreTxTypeName,
+    hashPreimage,
+    transactionHashPreimage,
+    verifySignature,
+    type SigningRequest,
+    type SigningTransaction
+} from "vfx-web-sdk"
+
+import {
+    plainDecimal,
+    ProviderError,
+    ProviderErrorCode,
+    txTypeName
+} from "~lib/provider/protocol"
+import { validateVfxAddress } from "~lib/utils"
+import type { Network } from "~types/types"
+
+// A vault creation signs three messages and a multi-input withdrawal two
+// plus one per input (the SDK caps inputs well below this).
+export const MAX_SIGNING_BATCH = 32
+const MAX_FLOW_ID_LENGTH = 128
+const MAX_FIELD_LENGTH = 512
+const MAX_MESSAGE_LENGTH = 4096
+// Core's largest transaction: 256 KB for a vBTC vault creation or transfer
+// (Globals.MaxVbtcVaultTxSizeBytes), 30 KB for the rest
+// (LedgerIntegrityRules.MaxTxSizeBytes). Token deploys with an icon and NFT
+// mints run well past the 16 KB vfx_signTransaction allows, and the hash
+// check covers the data however long it is, so the bound here is Core's.
+export const MAX_SIGNING_DATA_BYTES = 256 * 1024
+
+const HEX_DIGEST_PATTERN = /^[0-9a-fA-F]{64}$/
+const ADDRESS_PATTERN = /^[A-Za-z0-9]{34}$/
+const ID_PATTERN = /^[A-Za-z0-9_.:-]+$/
+const SIGNATURE_PATTERN = /^[A-Za-z0-9+/]+={0,2}\.[1-9A-HJ-NP-Za-km-z]+$/
+
+export const SIGNING_REQUEST_KINDS = [
+    "transaction",
+    "vbtc-ceremony",
+    "vbtc-ownership",
+    "frost-withdrawal",
+    "reserve-recovery",
+    "nft-beacon-upload",
+    "nft-beacon-download",
+    "nft-ownership-proof",
+    "spyglass-auth"
+] as const
+
+// NFT and Spyglass requests, pinned to vfx-web-sdk
+// feat/nft-and-vault-recovery @2d4d633 (nft-beacon-download: PR 37 @f37bdaf),
+// not yet in the SDK this extension builds against. Their messages carry no address: they are signed by the
+// account that approves them.
+type NftSigningRequest =
+    | { kind: "nft-beacon-upload"; flowId: string; message: string; scIdentifier: string; toAddress: string }
+    | { kind: "nft-beacon-download"; flowId: string; message: string; scIdentifier: string; locators: string }
+    | { kind: "nft-ownership-proof"; flowId: string; message: string; scIdentifier: string }
+    | { kind: "spyglass-auth"; flowId: string; message: string }
+
+export type SupportedSigningRequest =
+    | Extract<SigningRequest, { kind: "transaction" | "vbtc-ceremony" | "vbtc-ownership" | "frost-withdrawal" | "reserve-recovery" }>
+    | NftSigningRequest
+
+// "<nonce>.<unix seconds>" as the SDK builds them: 8 letters for an ownership
+// proof, 16 for a Spyglass session.
+const OWNERSHIP_PROOF_MESSAGE = /^[A-Za-z]{8}\.(\d{9,11})$/
+const SPYGLASS_AUTH_MESSAGE = /^[A-Za-z]{16}\.(\d{9,11})$/
+// The node's beacon locators for an NFT (base64 of the beacon's address,
+// comma-separated when there are several). "NA" means no media; the SDK never
+// asks to sign for it.
+const LOCATORS_PATTERN = /^[A-Za-z0-9+/=,]{1,2048}$/
+// How far a timed message's clock may be from the extension's.
+export const MESSAGE_TIME_WINDOW_SECONDS = 10 * 60
+
+export interface SigningItem {
+    digestHex: string
+    request: SupportedSigningRequest
+}
+
+// Validated vfx_signRequest parameters.
+export interface SignRequestParams {
+    flowId: string
+    // The one VFX address every item signs for, or null when no item names one
+    // (NFT and Spyglass messages), in which case the approving account signs.
+    signerAddress: string | null
+    items: SigningItem[]
+}
+
+export interface SignedItem {
+    digestHex: string
+    // base64(DER).base58(publicKey), the network's signature format.
+    signature: string
+    // The DER signature as hex, which is what Signer.signDigest returns.
+    der: string
+}
+
+export interface SignRequestResult {
+    flowId: string
+    signatures: SignedItem[]
+}
+
+function invalid(message: string): never {
+    throw new ProviderError(ProviderErrorCode.InvalidParams, message)
+}
+
+function requireString(value: unknown, label: string, pattern?: RegExp, maxLength = MAX_FIELD_LENGTH): string {
+    if (typeof value !== "string" || value.length === 0 || value.length > maxLength) {
+        invalid(`${label} must be a non-empty string`)
+    }
+    if (pattern && !pattern.test(value)) invalid(`${label} is not valid`)
+    return value
+}
+
+// Free text such as a token description: any length up to the bound, empty
+// allowed.
+function requireText(value: unknown, label: string): string {
+    if (typeof value !== "string" || value.length > MAX_FIELD_LENGTH) invalid(`${label} must be a string`)
+    return value
+}
+
+function requireInteger(value: unknown, label: string): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+        invalid(`${label} must be a non-negative integer`)
+    }
+    return value
+}
+
+function requireAmount(value: unknown, label: string): number {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        invalid(`${label} must be a non-negative number`)
+    }
+    return value
+}
+
+function requireAddress(value: unknown, label: string): string {
+    return requireString(value, label, ADDRESS_PATTERN)
+}
+
+export function sha256Hex(message: string): string {
+    return CryptoJS.SHA256(message).toString(CryptoJS.enc.Hex)
+}
+
+// Core's leader-auth message for MPC ceremony and FROST steps
+// (VBTCController: "{sessionId}.{ownerAddress}.{timestamp}"). Extra
+// withdrawal inputs use the session "{base}:i{k}".
+function leaderAuthMessage(sessionId: string, ownerAddress: string, timestamp: number): string {
+    return `${sessionId}.${ownerAddress}.${timestamp}`
+}
+
+function inputSessionId(sessionId: string, inputIndex: number): string {
+    const suffix = `:i${inputIndex}`
+    return sessionId.endsWith(suffix) ? sessionId : `${sessionId}${suffix}`
+}
+
+// A string that holds a JSON object or array, parsed; any other string as is.
+function parseJsonContainer(text: string): unknown {
+    const trimmed = text.trim()
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return text
+    try {
+        return JSON.parse(trimmed)
+    } catch {
+        return text
+    }
+}
+
+// Core's decimal text for an amount at `scale` decimals or more: the value's
+// own digits, padded with zeros, with ".0" for a whole number.
+function decimalTexts(value: number): string[] {
+    const plain = plainDecimal(value)
+    const [whole, fraction = ""] = plain.split(".")
+    const out: string[] = []
+    for (let scale = Math.max(fraction.length, 1); scale <= MAX_DECIMAL_SCALE; scale++) {
+        out.push(`${whole}.${fraction.padEnd(scale, "0")}`)
+    }
+    if (value === 0 || Number.isInteger(value)) out.push(whole)
+    return out
+}
+const MAX_DECIMAL_SCALE = 18
+
+// The preimage with Amount and Fee at the decimal scale the node used, or null
+// when no scale reproduces the transaction's Hash. Everything else in the
+// preimage is the extension's own text.
+function rescaledPreimage(tx: SigningTransaction, preimage: string): string | null {
+    const prefix = `${tx.Timestamp}${tx.FromAddress}${tx.ToAddress}`
+    const amountText = decimalTexts(tx.Amount)[0]
+    const feeText = decimalTexts(tx.Fee)[0]
+    if (!preimage.startsWith(prefix + amountText + feeText)) return null
+    const suffix = preimage.slice(prefix.length + amountText.length + feeText.length)
+    for (const amount of decimalTexts(tx.Amount)) {
+        for (const fee of decimalTexts(tx.Fee)) {
+            const candidate = `${prefix}${amount}${fee}${suffix}`
+            if (hashPreimage(candidate) === tx.Hash) return candidate
+        }
+    }
+    return null
+}
+
+function validateTransaction(raw: unknown): SigningTransaction {
+    const tx = raw as Record<string, unknown> | null
+    if (!tx || typeof tx !== "object" || Array.isArray(tx)) invalid("transaction must be an object")
+
+    const transactionType = requireInteger(tx.TransactionType, "transaction.TransactionType")
+    if (!canHashLocally(transactionType)) {
+        invalid(`Transaction type ${txTypeName(transactionType)} cannot be checked by the extension, so it will not be signed`)
+    }
+
+    let data: unknown = null
+    if (tx.Data !== undefined && tx.Data !== null) {
+        let serialised: string
+        try {
+            // Prepared transactions (vBTC contract create) carry Data as the
+            // JSON text the node returned. The node hashes the parsed JSON,
+            // as the SDK does, so it is parsed here too: the hash check below
+            // then covers exactly what the popup shows.
+            const parsed = typeof tx.Data === "string" ? parseJsonContainer(tx.Data) : tx.Data
+            serialised = JSON.stringify(parsed)
+        } catch {
+            invalid("transaction.Data must be JSON")
+        }
+        if (new TextEncoder().encode(serialised).length > MAX_SIGNING_DATA_BYTES) {
+            invalid(`transaction.Data is larger than ${MAX_SIGNING_DATA_BYTES} bytes`)
+        }
+        data = JSON.parse(serialised)
+    }
+
+    return {
+        Hash: requireString(tx.Hash, "transaction.Hash", HEX_DIGEST_PATTERN).toLowerCase(),
+        FromAddress: requireAddress(tx.FromAddress, "transaction.FromAddress"),
+        ToAddress: requireString(tx.ToAddress, "transaction.ToAddress", ID_PATTERN, 128),
+        TransactionType: transactionType,
+        Amount: requireAmount(tx.Amount, "transaction.Amount"),
+        Fee: requireAmount(tx.Fee, "transaction.Fee"),
+        Nonce: requireInteger(tx.Nonce, "transaction.Nonce"),
+        Timestamp: requireInteger(tx.Timestamp, "transaction.Timestamp"),
+        Data: data,
+        UnlockTime: tx.UnlockTime === null || tx.UnlockTime === undefined ? null : requireInteger(tx.UnlockTime, "transaction.UnlockTime")
+    }
+}
+
+// Rebuilds one request from an explicit field list for its kind (so nothing
+// else the page attached reaches the popup), and returns it with the message
+// the extension itself computed from those fields.
+export function rebuildSigningRequest(raw: unknown): { request: SupportedSigningRequest; message: string; signer: string | null } {
+    const value = raw as Record<string, unknown> | null
+    if (!value || typeof value !== "object" || Array.isArray(value)) invalid("request must be an object")
+
+    const flowId = requireString(value.flowId, "request.flowId", ID_PATTERN, MAX_FLOW_ID_LENGTH)
+    const message = requireString(value.message, "request.message", undefined, MAX_MESSAGE_LENGTH)
+
+    switch (value.kind) {
+        case "transaction": {
+            const hashSource = value.hashSource
+            const rawTx = value.transaction as Record<string, unknown> | null
+            // The vBTC withdrawal-request prepare answer leaves ToAddress out
+            // (the SDK passes ""); the node's transaction is addressed to the
+            // sender. Filled in here, the hash check below still has to pass.
+            const transaction = validateTransaction(
+                hashSource === "prepared" && rawTx && typeof rawTx === "object" && rawTx.ToAddress === ""
+                    ? { ...rawTx, ToAddress: rawTx.FromAddress }
+                    : rawTx
+            )
+            if (hashSource !== "local" && hashSource !== "server" && hashSource !== "prepared") {
+                invalid("request.hashSource must be local, server or prepared")
+            }
+            let preimage = transactionHashPreimage(transaction)
+            if (hashSource === "prepared" && hashPreimage(preimage) !== transaction.Hash) {
+                // A prepared transaction (vBTC transfer) whose Amount or Fee the
+                // node wrote as a C# decimal with its own scale ("0.00001040"),
+                // which a JSON number loses. Accept it when the same values at
+                // some scale hash to the node's Hash.
+                preimage = rescaledPreimage(transaction, preimage) ?? preimage
+            }
+            if (value.hashPreimage !== undefined && value.hashPreimage !== preimage) {
+                invalid("The transaction's hash preimage does not match its fields")
+            }
+            const computed = hashPreimage(preimage)
+            if (computed !== transaction.Hash) {
+                invalid(`The transaction hash does not match its fields (expected ${computed}, got ${transaction.Hash})`)
+            }
+            const request: SupportedSigningRequest = {
+                kind: "transaction",
+                flowId,
+                message,
+                transaction,
+                hashSource,
+                hashPreimage: preimage
+            }
+            return { request, message: computed, signer: transaction.FromAddress }
+        }
+
+        case "vbtc-ceremony": {
+            const step = value.step
+            if (step !== "start" && step !== "share") invalid("request.step must be start or share")
+            const request: SupportedSigningRequest = {
+                kind: "vbtc-ceremony",
+                flowId,
+                message,
+                step,
+                ceremonyId: requireString(value.ceremonyId, "request.ceremonyId", ID_PATTERN),
+                sessionId: requireString(value.sessionId, "request.sessionId", ID_PATTERN),
+                ownerAddress: requireAddress(value.ownerAddress, "request.ownerAddress"),
+                timestamp: requireInteger(value.timestamp, "request.timestamp")
+            }
+            return {
+                request,
+                message: leaderAuthMessage(request.sessionId, request.ownerAddress, request.timestamp),
+                signer: request.ownerAddress
+            }
+        }
+
+        case "vbtc-ownership": {
+            const request: SupportedSigningRequest = {
+                kind: "vbtc-ownership",
+                flowId,
+                message,
+                ownerAddress: requireAddress(value.ownerAddress, "request.ownerAddress"),
+                name: requireText(value.name, "request.name"),
+                description: requireText(value.description, "request.description"),
+                ticker: requireText(value.ticker, "request.ticker"),
+                ceremonyId: requireString(value.ceremonyId, "request.ceremonyId", ID_PATTERN),
+                timestamp: requireInteger(value.timestamp, "request.timestamp"),
+                uniqueId: requireString(value.uniqueId, "request.uniqueId", ID_PATTERN)
+            }
+            // vfx-web-sdk createVbtcToken: the ownership proof Core checks.
+            const rebuilt = `${request.ownerAddress}${request.name}${request.description}${request.ticker}${request.ceremonyId}${request.timestamp}${request.uniqueId}`
+            return { request, message: rebuilt, signer: request.ownerAddress }
+        }
+
+        case "frost-withdrawal": {
+            const step = value.step
+            if (step !== "start" && step !== "share" && step !== "input") {
+                invalid("request.step must be start, share or input")
+            }
+            const request: SupportedSigningRequest = {
+                kind: "frost-withdrawal",
+                flowId,
+                message,
+                step,
+                scIdentifier: requireString(value.scIdentifier, "request.scIdentifier", ID_PATTERN),
+                withdrawalRequestHash: requireString(value.withdrawalRequestHash, "request.withdrawalRequestHash", ID_PATTERN),
+                ownerAddress: requireAddress(value.ownerAddress, "request.ownerAddress"),
+                sessionId: requireString(value.sessionId, "request.sessionId", ID_PATTERN),
+                timestamp: requireInteger(value.timestamp, "request.timestamp")
+            }
+            if (step === "input") {
+                const inputIndex = requireInteger(value.inputIndex, "request.inputIndex")
+                if (inputIndex < 1) invalid("request.inputIndex must be 1 or more for an extra input")
+                request.inputIndex = inputIndex
+            }
+            const session = step === "input" ? inputSessionId(request.sessionId, request.inputIndex) : request.sessionId
+            return {
+                request,
+                message: leaderAuthMessage(session, request.ownerAddress, request.timestamp),
+                signer: request.ownerAddress
+            }
+        }
+
+        case "reserve-recovery": {
+            const request: SupportedSigningRequest = {
+                kind: "reserve-recovery",
+                flowId,
+                message,
+                reserveAddress: requireAddress(value.reserveAddress, "request.reserveAddress"),
+                recoveryAddress: requireAddress(value.recoveryAddress, "request.recoveryAddress"),
+                signatureTime: requireInteger(value.signatureTime, "request.signatureTime")
+            }
+            // The recovery key signs "{signatureTime}{recoveryAddress}".
+            return {
+                request,
+                message: `${request.signatureTime}${request.recoveryAddress}`,
+                signer: request.recoveryAddress
+            }
+        }
+
+        case "nft-beacon-upload": {
+            const request: SupportedSigningRequest = {
+                kind: "nft-beacon-upload",
+                flowId,
+                message,
+                scIdentifier: requireString(value.scIdentifier, "request.scIdentifier", ID_PATTERN),
+                toAddress: requireAddress(value.toAddress, "request.toAddress")
+            }
+            // The owner signs the contract id itself (SDK transferNft).
+            return { request, message: request.scIdentifier, signer: null }
+        }
+
+        case "nft-beacon-download": {
+            const locators = requireString(value.locators, "request.locators", LOCATORS_PATTERN, 2048)
+            if (locators === "NA") invalid("request.locators is NA: there is nothing to fetch")
+            const request: SupportedSigningRequest = {
+                kind: "nft-beacon-download",
+                flowId,
+                message,
+                scIdentifier: requireString(value.scIdentifier, "request.scIdentifier", ID_PATTERN),
+                locators
+            }
+            // The new owner signs the contract id itself (SDK pullNftBeaconAssets).
+            return { request, message: request.scIdentifier, signer: null }
+        }
+
+        case "nft-ownership-proof": {
+            if (!OWNERSHIP_PROOF_MESSAGE.test(message)) invalid("An ownership proof message must be <8 letters>.<unix time>")
+            const request: SupportedSigningRequest = {
+                kind: "nft-ownership-proof",
+                flowId,
+                message,
+                scIdentifier: requireString(value.scIdentifier, "request.scIdentifier", ID_PATTERN)
+            }
+            return { request, message, signer: null }
+        }
+
+        case "spyglass-auth": {
+            if (!SPYGLASS_AUTH_MESSAGE.test(message)) invalid("A Spyglass sign-in message must be <16 letters>.<unix time>")
+            const request: SupportedSigningRequest = { kind: "spyglass-auth", flowId, message }
+            return { request, message, signer: null }
+        }
+
+        case "message":
+            invalid("Plain messages are not signed through vfx_signRequest; use vfx_signMessage, which prefixes the site's origin")
+
+        default:
+            invalid(`Unsupported signing request kind: ${String(value.kind)}`)
+    }
+}
+
+// Accepts { digestHex, request } for one signature, or
+// { flowId?, items: [{ digestHex, request }, ...] } for one user action that
+// needs several. Every item must share one flowId and sign for one address
+// on the active network.
+export function validateSignRequestParams(
+    params: unknown,
+    activeNetwork: Network,
+    nowSeconds: number = Math.floor(Date.now() / 1000)
+): SignRequestParams {
+    const value = params as Record<string, unknown> | null
+    if (!value || typeof value !== "object" || Array.isArray(value)) invalid("Expected { digestHex, request } or { items }")
+
+    const rawItems: unknown[] = Array.isArray(value.items) ? value.items : value.items === undefined ? [value] : invalid("items must be an array")
+    if (rawItems.length === 0) invalid("items must not be empty")
+    if (rawItems.length > MAX_SIGNING_BATCH) invalid(`At most ${MAX_SIGNING_BATCH} signatures per request`)
+
+    const items: SigningItem[] = []
+    let signerAddress: string | null = null
+    for (const [index, rawItem] of rawItems.entries()) {
+        const item = rawItem as Record<string, unknown> | null
+        if (!item || typeof item !== "object") invalid(`items[${index}] must be an object`)
+        if (item.request === undefined || item.request === null) {
+            invalid(`items[${index}] has no request; the extension never signs a bare digest`)
+        }
+        const digestHex = requireString(item.digestHex, `items[${index}].digestHex`, HEX_DIGEST_PATTERN).toLowerCase()
+        const { request, message, signer } = rebuildSigningRequest(item.request)
+
+        if (request.message !== message) {
+            throw new ProviderError(
+                ProviderErrorCode.InvalidParams,
+                `items[${index}]: the message does not match the request's fields`
+            )
+        }
+        if (sha256Hex(message) !== digestHex) {
+            throw new ProviderError(
+                ProviderErrorCode.InvalidParams,
+                `items[${index}]: the digest does not match the request; refusing to sign`
+            )
+        }
+        if (request.kind === "nft-ownership-proof" || request.kind === "spyglass-auth") {
+            const signedAt = Number(message.slice(message.lastIndexOf(".") + 1))
+            if (Math.abs(signedAt - nowSeconds) > MESSAGE_TIME_WINDOW_SECONDS) {
+                invalid(`items[${index}]: the message's time is more than ${MESSAGE_TIME_WINDOW_SECONDS / 60} minutes from now`)
+            }
+        }
+        if (signer !== null) {
+            if (signerAddress === null) {
+                signerAddress = signer
+            } else if (signer !== signerAddress) {
+                invalid("Every signature in one request must be for the same address")
+            }
+        }
+        items.push({ digestHex, request })
+    }
+
+    // A Spyglass session token lets the site act as the account on Spyglass,
+    // so it is never folded into a batch with anything else.
+    if (items.length > 1 && items.some((item) => item.request.kind === "spyglass-auth")) {
+        invalid("A Spyglass sign-in must be requested on its own")
+    }
+
+    const flowId = items[0].request.flowId
+    if (items.some((item) => item.request.flowId !== flowId)) invalid("Every item in a batch must share one flowId")
+    if (value.flowId !== undefined && value.flowId !== flowId) invalid("flowId does not match the items")
+
+    if (signerAddress !== null && (!validateVfxAddress(signerAddress, activeNetwork) || signerAddress.startsWith("xRBX"))) {
+        throw new ProviderError(
+            ProviderErrorCode.WrongNetwork,
+            `${signerAddress} is not a ${activeNetwork} account; switch networks in the extension to continue`
+        )
+    }
+
+    return { flowId, signerAddress, items }
+}
+
+// The message to sign for an item, rebuilt from its fields.
+export function messageFor(item: SigningItem): string {
+    return rebuildSigningRequest(item.request).message
+}
+
+// DER hex from a network signature string.
+export function derHexFromSignature(signature: string): string {
+    return Array.from(atob(signature.split(".")[0]), (char) => char.charCodeAt(0).toString(16).padStart(2, "0")).join("")
+}
+
+// Rebuilds the popup's answer from the request (never from the popup's own
+// copy of the digests) and checks each signature verifies for the signer's
+// address over the message the extension rebuilt.
+export function sanitizeSignRequestResult(params: SignRequestParams, raw: unknown, address: string): SignRequestResult {
+    const value = raw as { signatures?: unknown } | null
+    const signatures = Array.isArray(value?.signatures) ? value.signatures : null
+    if (!signatures || signatures.length !== params.items.length) {
+        throw new ProviderError(ProviderErrorCode.Internal, "Wrong number of signatures in result")
+    }
+    if (params.signerAddress !== null && params.signerAddress !== address) {
+        throw new ProviderError(ProviderErrorCode.Internal, "The result does not match the request")
+    }
+    return {
+        flowId: params.flowId,
+        signatures: params.items.map((item, index) => {
+            const signature = (signatures[index] as { signature?: unknown } | null)?.signature
+            if (typeof signature !== "string" || !SIGNATURE_PATTERN.test(signature)) {
+                throw new ProviderError(ProviderErrorCode.Internal, "Invalid signature in result")
+            }
+            if (!verifySignature(messageFor(item), signature, address)) {
+                throw new ProviderError(ProviderErrorCode.Internal, "A signature in the result does not verify")
+            }
+            return { digestHex: item.digestHex, signature, der: derHexFromSignature(signature) }
+        })
+    }
+}
+
+// --- Display ----------------------------------------------------------------
+
+export interface DisplayRow {
+    label: string
+    value: string
+    mono?: boolean
+}
+
+export interface SigningRequestDisplay {
+    title: string
+    rows: DisplayRow[]
+    // Pretty-printed transaction data, when there is any.
+    data?: string
+}
+
+function formatTime(seconds: number): string {
+    const date = new Date(seconds * 1000)
+    return Number.isNaN(date.getTime()) ? String(seconds) : `${date.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC")}`
+}
+
+function parseData(data: unknown): unknown {
+    if (typeof data !== "string") return data
+    try {
+        return JSON.parse(data)
+    } catch {
+        return data
+    }
+}
+
+// Top-level scalar fields of a transaction's data (the first object of an
+// array), e.g. Function, ContractUID, Amount, BTCAddress.
+function dataRows(data: unknown): DisplayRow[] {
+    const parsed = parseData(data)
+    const first = Array.isArray(parsed) ? parsed[0] : parsed
+    if (!first || typeof first !== "object") return []
+    return Object.entries(first as Record<string, unknown>)
+        .filter(([, entry]) => ["string", "number", "boolean"].includes(typeof entry))
+        .slice(0, 12)
+        .map(([key, entry]) => ({ label: `Data: ${key}`, value: String(entry), mono: typeof entry === "string" && entry.length > 24 }))
+}
+
+// The vBTC amount a vBTC transaction moves, which travels in its data (the
+// transaction's own Amount is VFX, usually 0).
+function vbtcAmount(coreName: string, data: unknown): string | null {
+    if (!coreName.startsWith("VBTC_V2_")) return null
+    const parsed = parseData(data)
+    const first = (Array.isArray(parsed) ? parsed[0] : parsed) as Record<string, unknown> | null
+    // A multi-vault transfer (TransferVBTCMultiV2) carries TotalAmount.
+    const amount = first && typeof first === "object" ? (first.Amount ?? first.TotalAmount) : undefined
+    return typeof amount === "number" || typeof amount === "string" ? `${amount} vBTC` : null
+}
+
+const TRANSACTION_TITLES: Record<string, string> = {
+    TX: "Send VFX",
+    VBTC_V2_CONTRACT_CREATE: "Create a vBTC vault",
+    VBTC_V2_TRANSFER: "Transfer vBTC",
+    VBTC_V2_WITHDRAWAL_REQUEST: "Request a vBTC withdrawal",
+    VBTC_V2_WITHDRAWAL_COMPLETE: "Record a vBTC withdrawal",
+    VBTC_V2_WITHDRAWAL_CANCEL: "Cancel a vBTC withdrawal",
+    RESERVE: "Reserve (vault) account transaction",
+    ADNR: "VFX domain transaction",
+    NFT_MINT: "Mint an NFT",
+    NFT_TX: "Transfer an NFT",
+    NFT_BURN: "Burn an NFT",
+    FTKN_MINT: "Mint a token",
+    FTKN_TX: "Transfer a token",
+    FTKN_BURN: "Burn a token"
+}
+
+// Fungible-token transactions share a type (FTKN_TX) or reuse one
+// (TKNZ_MINT for a deploy); the contract function in Data says what they do.
+const TOKEN_FUNCTION_TITLES: Record<string, string> = {
+    "TokenDeploy()": "Deploy a token",
+    "TokenMint()": "Mint tokens",
+    "TokenTransfer()": "Transfer a token",
+    "TokenBurn()": "Burn tokens",
+    "TokenPause()": "Pause or resume a token",
+    "TokenBanAddress()": "Ban an address from a token",
+    "TokenContractOwnerChange()": "Change a token's owner",
+    "TokenVoteTopicCreate()": "Create a token voting topic",
+    "TokenVoteTopicCast()": "Vote on a token topic"
+}
+
+function tokenFunctionTitle(coreName: string, data: unknown): string | null {
+    if (!coreName.startsWith("FTKN_") && coreName !== "TKNZ_MINT") return null
+    const parsed = parseData(data)
+    const first = (Array.isArray(parsed) ? parsed[0] : parsed) as Record<string, unknown> | null
+    const fn = first && typeof first === "object" ? first.Function : undefined
+    return typeof fn === "string" ? (TOKEN_FUNCTION_TITLES[fn] ?? null) : null
+}
+
+export function describeSigningRequest(request: SupportedSigningRequest): SigningRequestDisplay {
+    switch (request.kind) {
+        case "transaction": {
+            const tx = request.transaction
+            const coreName = coreTxTypeName(tx.TransactionType)
+            const rows: DisplayRow[] = [
+                { label: "Type", value: `${txTypeName(tx.TransactionType)} (${tx.TransactionType})` },
+                { label: "From", value: tx.FromAddress, mono: true },
+                { label: "To", value: tx.ToAddress, mono: true },
+                ...(vbtcAmount(coreName, tx.Data) ? [{ label: "vBTC amount", value: vbtcAmount(coreName, tx.Data) }] : []),
+                { label: "Amount", value: `${plainDecimal(tx.Amount)} VFX` },
+                { label: "Network fee", value: `${plainDecimal(tx.Fee)} VFX` },
+                { label: "Nonce", value: String(tx.Nonce) },
+                { label: "Created", value: formatTime(tx.Timestamp) }
+            ]
+            if (tx.UnlockTime !== null) rows.push({ label: "Unlocks", value: formatTime(tx.UnlockTime) })
+            rows.push(...dataRows(tx.Data))
+            rows.push({ label: "Hash", value: tx.Hash, mono: true })
+            return {
+                title: tokenFunctionTitle(coreName, tx.Data) ?? TRANSACTION_TITLES[coreName] ?? `Sign a ${txTypeName(tx.TransactionType)} transaction`,
+                rows,
+                ...(tx.Data !== null && { data: JSON.stringify(parseData(tx.Data), null, 2) })
+            }
+        }
+        case "vbtc-ceremony":
+            return {
+                title: `vBTC vault key ceremony (${request.step === "start" ? "start" : "share distribution"})`,
+                rows: [
+                    { label: "Vault owner", value: request.ownerAddress, mono: true },
+                    { label: "Ceremony", value: request.ceremonyId, mono: true },
+                    { label: "Session", value: request.sessionId, mono: true },
+                    { label: "Time", value: formatTime(request.timestamp) }
+                ]
+            }
+        case "vbtc-ownership":
+            return {
+                title: "Claim ownership of a new vBTC vault",
+                rows: [
+                    { label: "Owner", value: request.ownerAddress, mono: true },
+                    { label: "Name", value: request.name },
+                    { label: "Ticker", value: request.ticker },
+                    { label: "Description", value: request.description || "-" },
+                    { label: "Ceremony", value: request.ceremonyId, mono: true },
+                    { label: "Time", value: formatTime(request.timestamp) }
+                ]
+            }
+        case "frost-withdrawal": {
+            const stepLabel =
+                request.step === "start" ? "start" : request.step === "share" ? "share distribution" : `input ${request.inputIndex}`
+            return {
+                title: `vBTC withdrawal signing (${stepLabel})`,
+                rows: [
+                    { label: "Vault", value: request.scIdentifier, mono: true },
+                    { label: "Owner", value: request.ownerAddress, mono: true },
+                    { label: "Withdrawal request", value: request.withdrawalRequestHash, mono: true },
+                    { label: "Session", value: request.sessionId, mono: true },
+                    { label: "Time", value: formatTime(request.timestamp) }
+                ]
+            }
+        }
+        case "reserve-recovery":
+            return {
+                title: "Recover a reserve (vault) account",
+                rows: [
+                    { label: "Reserve account", value: request.reserveAddress, mono: true },
+                    { label: "Funds go to", value: request.recoveryAddress, mono: true },
+                    { label: "Signed at", value: formatTime(request.signatureTime) }
+                ]
+            }
+        case "nft-beacon-upload":
+            return {
+                title: "Send an NFT's files to its new owner",
+                rows: [
+                    { label: "NFT", value: request.scIdentifier, mono: true },
+                    { label: "Files go to", value: request.toAddress, mono: true },
+                    { label: "Message signed", value: request.message, mono: true }
+                ]
+            }
+        case "nft-beacon-download":
+            return {
+                title: "Fetch a received NFT's files",
+                rows: [
+                    { label: "NFT", value: request.scIdentifier, mono: true },
+                    { label: "From beacons", value: request.locators, mono: true },
+                    { label: "Message signed", value: request.message, mono: true }
+                ]
+            }
+        case "nft-ownership-proof":
+            return {
+                title: "Prove you own an NFT",
+                rows: [
+                    { label: "NFT", value: request.scIdentifier, mono: true },
+                    { label: "Message signed", value: request.message, mono: true },
+                    { label: "Time", value: formatTime(Number(request.message.split(".")[1])) }
+                ]
+            }
+        case "spyglass-auth":
+            return {
+                title: "Sign in to Spyglass",
+                rows: [
+                    { label: "Message signed", value: request.message, mono: true },
+                    { label: "Time", value: formatTime(Number(request.message.split(".")[1])) }
+                ]
+            }
+    }
+}
+
+// One headline for the whole flow, from what its steps do.
+export function describeFlow(items: SigningItem[]): string {
+    const kinds = new Set(items.map((item) => item.request.kind))
+    if (kinds.has("vbtc-ceremony") || kinds.has("vbtc-ownership")) return "Create a vBTC vault"
+    if (kinds.has("frost-withdrawal")) return "Complete a vBTC withdrawal"
+    if (kinds.has("reserve-recovery")) return "Recover a reserve account"
+    if (items.length === 1) return describeSigningRequest(items[0].request).title
+    return `Sign ${items.length} transactions`
+}

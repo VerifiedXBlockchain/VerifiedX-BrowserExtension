@@ -4,9 +4,11 @@ import type { PendingKeyRequest, EncryptedKeyResponse } from "~types/auth"
 import { checkKeyShareOrigin } from "~lib/keyShareOrigins"
 import { ConnectionStore } from "~lib/provider/connections"
 import { ProviderHandler } from "~lib/provider/handler"
+import { btcAccountFromWif } from "~lib/provider/psbt"
 import { ProviderRequestQueue } from "~lib/provider/requests"
-import { getNetwork } from "~lib/secureStorage"
+import { decryptBtcKeypair, getNetwork, isWalletCreated } from "~lib/secureStorage"
 import { createAccountFromSecret } from "~lib/utils"
+import { Currency } from "~types/types"
 
 let decryptedMnemonic: string | null = null
 let unlockUntil: number = 0
@@ -20,9 +22,15 @@ const provider = new ProviderHandler({
     connections: new ConnectionStore(chrome.storage.local),
     unlockedKey: () => (decryptedMnemonic !== null && Date.now() < unlockUntil ? decryptedMnemonic : null),
     activeNetwork: getNetwork,
+    extensionVersion: () => chrome.runtime.getManifest().version,
     deriveAccount: (network, privateKey) => {
         const account = createAccountFromSecret(network, privateKey)
         return { address: account.address, publicKey: account.public, network }
+    },
+    // The BTC keypair is stored encrypted under the unlocked VFX key.
+    btcAccount: async (network, privateKey) => {
+        if (!(await isWalletCreated(network, Currency.BTC))) return null
+        return btcAccountFromWif((await decryptBtcKeypair(privateKey, network)).wif, network)
     },
     openApprovalWindow: (requestId) =>
         new Promise((resolve, reject) => {
