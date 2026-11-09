@@ -287,6 +287,12 @@ describe("decoding each request type", () => {
         expect(title(TxType.TokenTx, "Unknown()")).toBe("Transfer a token")
     })
 
+    it("shows the total of a multi-vault vBTC transfer as its vBTC amount", () => {
+        const item = txItem(transaction({ TransactionType: TxType.VbtcV2Transfer, Amount: 0, Data: [{ Function: "TransferVBTCMultiV2()", FromAddress: ACCOUNT.address, ToAddress: OTHER.address, TotalAmount: 0.0018, Inputs: [] }] }))
+        const rows = describeSigningRequest(validateSignRequestParams(item, Network.Testnet).items[0].request).rows
+        expect(rows).toEqual(expect.arrayContaining([{ label: "vBTC amount", value: "0.0018 vBTC" }]))
+    })
+
     it("a plain VFX send", () => {
         const { items } = validateSignRequestParams(txItem(), Network.Testnet)
         const display = describeSigningRequest(items[0].request)

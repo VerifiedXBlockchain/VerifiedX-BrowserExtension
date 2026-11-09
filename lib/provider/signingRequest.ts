@@ -597,7 +597,8 @@ function vbtcAmount(coreName: string, data: unknown): string | null {
     if (!coreName.startsWith("VBTC_V2_")) return null
     const parsed = parseData(data)
     const first = (Array.isArray(parsed) ? parsed[0] : parsed) as Record<string, unknown> | null
-    const amount = first && typeof first === "object" ? first.Amount : undefined
+    // A multi-vault transfer (TransferVBTCMultiV2) carries TotalAmount.
+    const amount = first && typeof first === "object" ? (first.Amount ?? first.TotalAmount) : undefined
     return typeof amount === "number" || typeof amount === "string" ? `${amount} vBTC` : null
 }
 
