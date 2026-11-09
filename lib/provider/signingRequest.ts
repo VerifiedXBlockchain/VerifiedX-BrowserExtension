@@ -16,7 +16,7 @@ import CryptoJS from "crypto-js"
 import {
     canHashLocally,
     coreTxTypeName,
-    transactionHash,
+    hashPreimage,
     transactionHashPreimage,
     verifySignature,
     type SigningRequest,
@@ -178,6 +178,38 @@ function parseJsonContainer(text: string): unknown {
     }
 }
 
+// Core's decimal text for an amount at `scale` decimals or more: the value's
+// own digits, padded with zeros, with ".0" for a whole number.
+function decimalTexts(value: number): string[] {
+    const plain = plainDecimal(value)
+    const [whole, fraction = ""] = plain.split(".")
+    const out: string[] = []
+    for (let scale = Math.max(fraction.length, 1); scale <= MAX_DECIMAL_SCALE; scale++) {
+        out.push(`${whole}.${fraction.padEnd(scale, "0")}`)
+    }
+    if (value === 0 || Number.isInteger(value)) out.push(whole)
+    return out
+}
+const MAX_DECIMAL_SCALE = 18
+
+// The preimage with Amount and Fee at the decimal scale the node used, or null
+// when no scale reproduces the transaction's Hash. Everything else in the
+// preimage is the extension's own text.
+function rescaledPreimage(tx: SigningTransaction, preimage: string): string | null {
+    const prefix = `${tx.Timestamp}${tx.FromAddress}${tx.ToAddress}`
+    const amountText = decimalTexts(tx.Amount)[0]
+    const feeText = decimalTexts(tx.Fee)[0]
+    if (!preimage.startsWith(prefix + amountText + feeText)) return null
+    const suffix = preimage.slice(prefix.length + amountText.length + feeText.length)
+    for (const amount of decimalTexts(tx.Amount)) {
+        for (const fee of decimalTexts(tx.Fee)) {
+            const candidate = `${prefix}${amount}${fee}${suffix}`
+            if (hashPreimage(candidate) === tx.Hash) return candidate
+        }
+    }
+    return null
+}
+
 function validateTransaction(raw: unknown): SigningTransaction {
     const tx = raw as Record<string, unknown> | null
     if (!tx || typeof tx !== "object" || Array.isArray(tx)) invalid("transaction must be an object")
@@ -237,11 +269,18 @@ export function rebuildSigningRequest(raw: unknown): { request: SupportedSigning
             if (hashSource !== "local" && hashSource !== "server" && hashSource !== "prepared") {
                 invalid("request.hashSource must be local, server or prepared")
             }
-            const preimage = transactionHashPreimage(transaction)
+            let preimage = transactionHashPreimage(transaction)
+            if (hashSource === "prepared" && hashPreimage(preimage) !== transaction.Hash) {
+                // A prepared transaction (vBTC transfer) whose Amount or Fee the
+                // node wrote as a C# decimal with its own scale ("0.00001040"),
+                // which a JSON number loses. Accept it when the same values at
+                // some scale hash to the node's Hash.
+                preimage = rescaledPreimage(transaction, preimage) ?? preimage
+            }
             if (value.hashPreimage !== undefined && value.hashPreimage !== preimage) {
                 invalid("The transaction's hash preimage does not match its fields")
             }
-            const computed = transactionHash(transaction)
+            const computed = hashPreimage(preimage)
             if (computed !== transaction.Hash) {
                 invalid(`The transaction hash does not match its fields (expected ${computed}, got ${transaction.Hash})`)
             }

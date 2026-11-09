@@ -17,6 +17,7 @@ import { createAccountFromSecret } from "~lib/utils"
 
 import NFT_VECTORS from "./fixtures/nftSigningVectors.json"
 import VBTC_CREATE from "./fixtures/vbtcCreateRequest.json"
+import VBTC_TRANSFER from "./fixtures/vbtcTransferRequest.json"
 import { Network } from "~types/types"
 
 const client = new VfxClient(Network.Testnet)
@@ -164,6 +165,25 @@ describe("digest checks", () => {
         // The popup shows (and the hash covers) the parsed contract data.
         expect(Array.isArray(item.request.transaction.Data)).toBe(true)
         expect(describeSigningRequest(item.request).title).toBe("Create a vBTC vault")
+    })
+
+    it("accepts a prepared vBTC transfer whose Fee the node wrote at 8 decimals", () => {
+        const params = validateSignRequestParams(VBTC_TRANSFER, Network.Testnet)
+        const item = params.items[0]
+        expect(messageFor(item)).toBe(VBTC_TRANSFER.request.transaction.Hash)
+        if (item.request.kind !== "transaction") throw new Error("expected a transaction")
+        expect(item.request.hashPreimage).toContain("0.00001040")
+        expect(describeSigningRequest(item.request).rows).toEqual(expect.arrayContaining([{ label: "Network fee", value: "0.0000104 VFX" }]))
+    })
+
+    it("does not rescale its way past a changed amount or fee, or for a transaction it built itself", () => {
+        const tx = VBTC_TRANSFER.request.transaction
+        for (const changed of [{ Fee: 0.0000105 }, { Amount: 0.0001 }]) {
+            const item = { ...VBTC_TRANSFER, request: { ...VBTC_TRANSFER.request, transaction: { ...tx, ...changed } } }
+            expect(errorOf(() => validateSignRequestParams(item, Network.Testnet)).message).toMatch(/hash does not match/)
+        }
+        const local = { ...VBTC_TRANSFER, request: { ...VBTC_TRANSFER.request, hashSource: "local" } }
+        expect(errorOf(() => validateSignRequestParams(local, Network.Testnet)).message).toMatch(/hash does not match/)
     })
 
     it("still refuses a JSON-text Data that was changed after hashing", () => {
