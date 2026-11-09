@@ -16,7 +16,7 @@
 
 import * as ecc from "@bitcoinerlab/secp256k1"
 import * as bitcoin from "bitcoinjs-lib"
-import { btc } from "vfx-web-sdk"
+import bs58check from "bs58check"
 
 import { ProviderError, ProviderErrorCode } from "~lib/provider/protocol"
 import { Network } from "~types/types"
@@ -212,12 +212,21 @@ export function walletScript(publicKeyHex: string, network: Network): Buffer {
     return output
 }
 
+// The 32-byte key in a WIF: version byte, key, and 0x01 when compressed.
+export function privateKeyFromWif(wif: string, network: Network): Buffer {
+    const payload = Buffer.from(bs58check.decode(wif))
+    if (payload[0] !== btcNetworkParams(network).wif) throw new Error("The Bitcoin key is for another network")
+    if (payload.length !== 33 && !(payload.length === 34 && payload[33] === 0x01)) throw new Error("Invalid Bitcoin key")
+    const privateKey = payload.subarray(1, 33)
+    if (!ecc.isPrivate(privateKey)) throw new Error("Invalid Bitcoin key")
+    return privateKey
+}
+
 // A bitcoinjs signer for a WIF, always with the compressed public key the
-// wallet's P2WPKH address uses. (ecpair is not used directly: its WIF
+// wallet's P2WPKH address uses. (ecpair is not used here: its WIF
 // dependency chain does not bundle under Plasmo.)
 function keyPairFromWif(wif: string, network: Network): bitcoin.Signer {
-    const privateKey = Buffer.from(btc.wifToPrivateKey(wif, btcNetworkParams(network)))
-    if (privateKey.length !== 32 || !ecc.isPrivate(privateKey)) throw new Error("Invalid Bitcoin key")
+    const privateKey = privateKeyFromWif(wif, network)
     return {
         publicKey: Buffer.from(ecc.pointFromScalar(privateKey, true)),
         sign: (hash: Buffer) => Buffer.from(ecc.sign(hash, privateKey))

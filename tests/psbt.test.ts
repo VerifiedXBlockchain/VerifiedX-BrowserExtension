@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import { ProviderErrorCode } from "~lib/provider/protocol"
 import {
     btcAccountFromWif,
+    privateKeyFromWif,
     sanitizeSignPsbtResult,
     signPsbt,
     summarizePsbt,
@@ -67,6 +68,15 @@ function errorOf(fn: () => unknown): { code?: number; message?: string } {
     }
     throw new Error("expected a throw")
 }
+
+describe("Bitcoin key", () => {
+    it("reads a WIF the same way ecpair does, and refuses another network's", () => {
+        expect(privateKeyFromWif(WALLET_WIF, Network.Testnet).equals(Buffer.from(WALLET.privateKey))).toBe(true)
+        expect(WALLET_ACCOUNT.publicKey).toBe(Buffer.from(WALLET.publicKey).toString("hex"))
+        const mainnetWif = ECPair.fromPrivateKey(Buffer.from(WALLET.privateKey), { network: bitcoin.networks.bitcoin }).toWIF()
+        expect(() => privateKeyFromWif(mainnetWif, Network.Testnet)).toThrow(/another network/)
+    })
+})
 
 describe("PSBT summary", () => {
     it("shows inputs, outputs, fee, change and what leaves the wallet", () => {

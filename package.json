@@ -14,6 +14,7 @@
     "@bitcoinerlab/secp256k1": "^1.2.0",
     "@plasmohq/storage": "^1.15.0",
     "bitcoinjs-lib": "^6.1.10",
+    "bs58check": "^3.0.1",
     "crypto-js": "^3.3.0",
     "plasmo": "0.90.5",
     "react": "18.2.0",

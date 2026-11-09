@@ -134,7 +134,7 @@ export default function ApprovePsbt({ request, network, finish, error }: Approve
                             <div key={input.index} className="flex justify-between gap-2">
                                 <p className="font-mono text-xs break-all">
                                     {short(input.txid)}:{input.vout}
-                                    <span className={input.mine ? "ml-1 text-orange-300" : "ml-1 text-gray-500"}>
+                                    <span className={input.mine ? "ml-1 whitespace-nowrap text-orange-300" : "ml-1 whitespace-nowrap text-gray-500"}>
                                         {summary.signInputs.includes(input.index) ? "(signing)" : input.mine ? "(yours)" : "(not yours)"}
                                     </span>
                                 </p>
