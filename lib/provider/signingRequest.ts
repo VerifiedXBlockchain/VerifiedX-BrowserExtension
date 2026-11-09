@@ -24,7 +24,6 @@ import {
 } from "vfx-web-sdk"
 
 import {
-    MAX_TX_DATA_BYTES,
     plainDecimal,
     ProviderError,
     ProviderErrorCode,
@@ -39,6 +38,12 @@ export const MAX_SIGNING_BATCH = 32
 const MAX_FLOW_ID_LENGTH = 128
 const MAX_FIELD_LENGTH = 512
 const MAX_MESSAGE_LENGTH = 4096
+// Core's largest transaction: 256 KB for a vBTC vault creation or transfer
+// (Globals.MaxVbtcVaultTxSizeBytes), 30 KB for the rest
+// (LedgerIntegrityRules.MaxTxSizeBytes). Token deploys with an icon and NFT
+// mints run well past the 16 KB vfx_signTransaction allows, and the hash
+// check covers the data however long it is, so the bound here is Core's.
+export const MAX_SIGNING_DATA_BYTES = 256 * 1024
 
 const HEX_DIGEST_PATTERN = /^[0-9a-fA-F]{64}$/
 const ADDRESS_PATTERN = /^[A-Za-z0-9]{34}$/
@@ -195,8 +200,8 @@ function validateTransaction(raw: unknown): SigningTransaction {
         } catch {
             invalid("transaction.Data must be JSON")
         }
-        if (new TextEncoder().encode(serialised).length > MAX_TX_DATA_BYTES) {
-            invalid(`transaction.Data is larger than ${MAX_TX_DATA_BYTES} bytes`)
+        if (new TextEncoder().encode(serialised).length > MAX_SIGNING_DATA_BYTES) {
+            invalid(`transaction.Data is larger than ${MAX_SIGNING_DATA_BYTES} bytes`)
         }
         data = JSON.parse(serialised)
     }

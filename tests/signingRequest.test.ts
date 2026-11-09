@@ -7,6 +7,7 @@ import {
     describeFlow,
     describeSigningRequest,
     MAX_SIGNING_BATCH,
+    MAX_SIGNING_DATA_BYTES,
     messageFor,
     sanitizeSignRequestResult,
     sha256Hex,
@@ -170,6 +171,12 @@ describe("digest checks", () => {
         data[0].ContractUID = "tampered:1"
         const tampered = { ...VBTC_CREATE, request: { ...VBTC_CREATE.request, hashPreimage: undefined, transaction: { ...VBTC_CREATE.request.transaction, Data: JSON.stringify(data) } } }
         expect(errorOf(() => validateSignRequestParams(tampered, Network.Testnet)).message).toMatch(/hash does not match/)
+    })
+
+    it("takes Data up to Core's 256 KB bound (a token deploy with an icon runs past 16 KB), and no more", () => {
+        const big = (bytes: number) => transaction({ TransactionType: TxType.TokenDeploy, Data: [{ Function: "TokenDeploy()", Data: "A".repeat(bytes) }] })
+        expect(validateSignRequestParams(txItem(big(40_000)), Network.Testnet).items).toHaveLength(1)
+        expect(errorOf(() => validateSignRequestParams(txItem(big(MAX_SIGNING_DATA_BYTES)), Network.Testnet)).message).toMatch(/larger than/)
     })
 
     it("refuses transaction types it cannot hash locally", () => {
