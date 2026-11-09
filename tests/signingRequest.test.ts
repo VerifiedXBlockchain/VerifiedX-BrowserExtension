@@ -18,6 +18,7 @@ import { createAccountFromSecret } from "~lib/utils"
 import NFT_VECTORS from "./fixtures/nftSigningVectors.json"
 import VBTC_CREATE from "./fixtures/vbtcCreateRequest.json"
 import VBTC_TRANSFER from "./fixtures/vbtcTransferRequest.json"
+import VBTC_WITHDRAWAL from "./fixtures/vbtcWithdrawalRequest.json"
 import { Network } from "~types/types"
 
 const client = new VfxClient(Network.Testnet)
@@ -184,6 +185,18 @@ describe("digest checks", () => {
         }
         const local = { ...VBTC_TRANSFER, request: { ...VBTC_TRANSFER.request, hashSource: "local" } }
         expect(errorOf(() => validateSignRequestParams(local, Network.Testnet)).message).toMatch(/hash does not match/)
+    })
+
+    it("accepts a prepared withdrawal request with no ToAddress, as addressed to the sender", () => {
+        const item = validateSignRequestParams(VBTC_WITHDRAWAL, Network.Testnet).items[0]
+        if (item.request.kind !== "transaction") throw new Error("expected a transaction")
+        expect(item.request.transaction.ToAddress).toBe(VBTC_WITHDRAWAL.request.transaction.FromAddress)
+        expect(describeSigningRequest(item.request).title).toBe("Request a vBTC withdrawal")
+        // Only for prepared transactions, and the hash must still hold.
+        const local = { ...VBTC_WITHDRAWAL, request: { ...VBTC_WITHDRAWAL.request, hashSource: "local" } }
+        expect(errorOf(() => validateSignRequestParams(local, Network.Testnet)).code).toBe(ProviderErrorCode.InvalidParams)
+        const moved = { ...VBTC_WITHDRAWAL, request: { ...VBTC_WITHDRAWAL.request, transaction: { ...VBTC_WITHDRAWAL.request.transaction, Data: VBTC_WITHDRAWAL.request.transaction.Data.replace("0.0005", "0.0006") } } }
+        expect(errorOf(() => validateSignRequestParams(moved, Network.Testnet)).message).toMatch(/hash does not match/)
     })
 
     it("still refuses a JSON-text Data that was changed after hashing", () => {

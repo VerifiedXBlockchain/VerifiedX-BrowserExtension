@@ -1,0 +1,22 @@
+{
+  "source": "testnet /vbtc-v2/withdraw/request/prepare 2026-11-09 as the SDK's preparedSigningRequest passes it (no ToAddress in the answer, so \"\")",
+  "digestHex": "7da72b5c53e63d9510cc60cfd434be19386d49363c8f143a8ee16496cfd0e0e9",
+  "request": {
+    "kind": "transaction",
+    "flowId": "wflow1",
+    "message": "6384f1770ca191172519b57640ef76958bb799f1ced5731e7892c583a19614ef",
+    "transaction": {
+      "Hash": "6384f1770ca191172519b57640ef76958bb799f1ced5731e7892c583a19614ef",
+      "FromAddress": "xAExuj1TsdqzSJKQEYVZYfJ48rh4dYGpaw",
+      "ToAddress": "",
+      "TransactionType": 27,
+      "Amount": 0,
+      "Fee": 1.143e-05,
+      "Nonce": 17,
+      "Timestamp": 1794216875,
+      "Data": "{\"Function\":\"VBTCWithdrawalRequest()\",\"ContractUID\":\"4f74b39c45434031a2e5ed9a7c593474:1794209925\",\"RequestorAddress\":\"xAExuj1TsdqzSJKQEYVZYfJ48rh4dYGpaw\",\"BTCAddress\":\"tb1qgxemmvn333yl5qmqzkl5k8ep7lyxnlrg83etng\",\"Amount\":0.0005,\"FeeRate\":5,\"UniqueId\":null}",
+      "UnlockTime": null
+    },
+    "hashSource": "prepared"
+  }
+}

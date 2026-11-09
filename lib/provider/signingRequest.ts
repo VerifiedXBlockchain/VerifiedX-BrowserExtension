@@ -264,8 +264,16 @@ export function rebuildSigningRequest(raw: unknown): { request: SupportedSigning
 
     switch (value.kind) {
         case "transaction": {
-            const transaction = validateTransaction(value.transaction)
             const hashSource = value.hashSource
+            const rawTx = value.transaction as Record<string, unknown> | null
+            // The vBTC withdrawal-request prepare answer leaves ToAddress out
+            // (the SDK passes ""); the node's transaction is addressed to the
+            // sender. Filled in here, the hash check below still has to pass.
+            const transaction = validateTransaction(
+                hashSource === "prepared" && rawTx && typeof rawTx === "object" && rawTx.ToAddress === ""
+                    ? { ...rawTx, ToAddress: rawTx.FromAddress }
+                    : rawTx
+            )
             if (hashSource !== "local" && hashSource !== "server" && hashSource !== "prepared") {
                 invalid("request.hashSource must be local, server or prepared")
             }
